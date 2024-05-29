@@ -17,6 +17,7 @@ from pymatgen.analysis.elasticity import (
 from pymatgen.core import Structure
 from pymatgen.core.tensors import TensorMapping
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
+from typing_extensions import Self
 
 from atomate2 import SETTINGS
 
@@ -155,9 +156,8 @@ class ElasticDocument(StructureMetadata):
         equilibrium_stress: Optional[Matrix3D] = None,
         symprec: float = SETTINGS.SYMPREC,
         allow_elastically_unstable_structs: bool = True,
-    ) -> "ElasticDocument":
-        """
-        Create an elastic document from strains and stresses.
+    ) -> Self:
+        """Create an elastic document from strains and stresses.
 
         Parameters
         ----------
@@ -191,7 +191,7 @@ class ElasticDocument(StructureMetadata):
         strains = [d.green_lagrange_strain for d in deformations]
 
         if symprec is not None:
-            strains, stresses, uuids, job_dirs = _expand_strains(
+            strains, stresses, uuids, job_dirs = expand_strains(
                 structure, strains, stresses, uuids, job_dirs, symprec
             )
 
@@ -257,7 +257,7 @@ class ElasticDocument(StructureMetadata):
         )
 
 
-def _expand_strains(
+def expand_strains(
     structure: Structure,
     strains: list[Strain],
     stresses: list[Stress],
