@@ -11,6 +11,7 @@ from typing import Any, Optional, Union
 import numpy as np
 from emmet.core.math import Matrix3D, Vector3D
 from emmet.core.structure import MoleculeMetadata, StructureMetadata
+from emmet.core.symmetry import PointGroupData, SymmetryData
 from emmet.core.task import BaseTaskDocument
 from emmet.core.tasks import get_uri
 from emmet.core.vasp.calc_types.enums import TaskType
@@ -85,6 +86,56 @@ class AnalysisDoc(BaseModel):
         )
 
 
+class Species(BaseModel):
+    """A representation of the most important information about each type of species.
+
+    Parameters
+    ----------
+    element: str
+        Element assigned to this atom kind
+    species_defaults: str
+        Basis set for this atom kind
+    """
+
+    element: str = Field(None, description="Element assigned to this atom kind")
+    species_defaults: str = Field(None, description="Basis set for this atom kind")
+
+
+class SpeciesSummary(BaseModel):
+    """A summary of species defaults.
+
+    Parameters
+    ----------
+    species_defaults: Dict[str, .Species]
+        Dictionary mapping atomic kind labels to their info
+    """
+
+    species_defaults: dict[str, Species] = Field(
+        None, description="Dictionary mapping atomic kind labels to their info"
+    )
+
+    @classmethod
+    def from_species_info(cls, species_info: dict[str, dict[str, Any]]) -> Self:
+        """Initialize from the atomic_kind_info dictionary.
+
+        Parameters
+        ----------
+        species_info: Dict[str, Dict[str, Any]]
+            The information for the basis set for the calculation
+
+        Returns
+        -------
+        The SpeciesSummary
+        """
+        dct: dict[str, dict[str, Any]] = {"species_defaults": {}}
+        for kind, info in species_info.items():
+            dct["species_defaults"][kind] = {
+                "element": info["element"],
+                "species_defaults": info["species_defaults"],
+            }
+        return cls(**dct)
+
+
 class InputDoc(BaseModel):
     """Summary of inputs for an FHI-aims calculation.
 
@@ -102,6 +153,9 @@ class InputDoc(BaseModel):
 
     structure: Union[Structure, Molecule] = Field(
         None, description="The input structure object"
+    )
+    species_info: SpeciesSummary = Field(
+        None, description="Summary of the species defaults used for each atom kind"
     )
     parameters: dict[str, Any] = Field(
         {}, description="The input parameters for FHI-aims"
@@ -131,12 +185,15 @@ class InputDoc(BaseModel):
         magnetic_moments = None
         if "magmom" in structure.site_properties:
             magnetic_moments = structure.site_properties["magmom"]
+        summary = SpeciesSummary.from_species_info(calc_doc.input.species_info)
 
         return cls(
             structure=structure,
             parameters=calc_doc.input.parameters,
             xc=calc_doc.input.parameters["xc"],
             magnetic_moments=magnetic_moments,
+            atomic_kind_info=summary,
+
         )
 
 
@@ -417,6 +474,9 @@ class AimsTaskDoc(BaseTaskDocument, StructureMetadata, MoleculeMetadata):
     structure: Union[Structure, Molecule] = Field(
         None, description="Final output atoms from the task"
     )
+    symmetry: Optional[SymmetryData | PointGroupData] = Field(
+        None, description="Symmetry data for the atomic system"
+    )
     state: TaskState = Field(None, description="State of this task")
     included_objects: Optional[list[AimsObject]] = Field(
         None, description="List of FHI-aims objects included with this task document"
@@ -516,11 +576,12 @@ class AimsTaskDoc(BaseTaskDocument, StructureMetadata, MoleculeMetadata):
         if aims_objects:
             included_objects = list(aims_objects.keys())
 
+        # get structure specific keywords from emmet base classes
         # rewrite the original structure save!
+        structure = calcs_reversed[-1].output.structure
 
         data = {
-            "structure": calcs_reversed[-1].output.structure,
-            "meta_structure": calcs_reversed[-1].output.structure,
+            "structure": structure,
             "dir_name": dir_name,
             "calcs_reversed": calcs_reversed,
             "analysis": analysis,
@@ -534,7 +595,11 @@ class AimsTaskDoc(BaseTaskDocument, StructureMetadata, MoleculeMetadata):
             "aims_objects": aims_objects,
             "included_objects": included_objects,
         }
-        doc = cls(**data)
+        if isinstance(structure, Structure):
+            doc = cls.from_structure(structure, **data)
+        else:
+            doc = cls.from_molecule(structure, **data)
+
         return doc.model_copy(update=additional_fields, deep=True)
 
     @staticmethod
