@@ -11,6 +11,7 @@ from typing import Any, Optional, Union
 import numpy as np
 from emmet.core.math import Matrix3D, Vector3D
 from emmet.core.structure import MoleculeMetadata, StructureMetadata
+from emmet.core.symmetry import PointGroupData, SymmetryData
 from emmet.core.tasks import get_uri
 from pydantic import BaseModel, Field
 from pymatgen.core import Molecule, Structure
@@ -445,6 +446,9 @@ class AimsTaskDoc(StructureMetadata, MoleculeMetadata):
     structure: Union[Structure, Molecule] = Field(
         None, description="Final output atoms from the task"
     )
+    symmetry: Optional[SymmetryData | PointGroupData] = Field(
+        None, description="Symmetry data for the atomic system"
+    )
     state: TaskState = Field(None, description="State of this task")
     included_objects: Optional[list[AimsObject]] = Field(
         None, description="List of FHI-aims objects included with this task document"
@@ -544,11 +548,12 @@ class AimsTaskDoc(StructureMetadata, MoleculeMetadata):
         if aims_objects:
             included_objects = list(aims_objects.keys())
 
+        # get structure specific keywords from emmet base classes
         # rewrite the original structure save!
+        structure = calcs_reversed[-1].output.structure
 
         data = {
-            "structure": calcs_reversed[-1].output.structure,
-            "meta_structure": calcs_reversed[-1].output.structure,
+            "structure": structure,
             "dir_name": dir_name,
             "calcs_reversed": calcs_reversed,
             "analysis": analysis,
@@ -560,7 +565,11 @@ class AimsTaskDoc(StructureMetadata, MoleculeMetadata):
             "aims_objects": aims_objects,
             "included_objects": included_objects,
         }
-        doc = cls(**data)
+        if isinstance(structure, Structure):
+            doc = cls.from_structure(structure, **data)
+        else:
+            doc = cls.from_molecule(structure, **data)
+
         return doc.model_copy(update=additional_fields, deep=True)
 
     @staticmethod
