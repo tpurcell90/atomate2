@@ -22,7 +22,12 @@ from typing_extensions import Self
 from atomate2.aims.schemas.calculation import AimsObject, Calculation, TaskState
 from atomate2.aims.utils import datetime_str
 
-_VOLUMETRIC_FILES = ("total_density", "spin_density", "eigenstate_density")
+_VOLUMETRIC_FILES = (
+    "total_density",
+    "spin_density",
+    "eigenstate_density",
+    "realspace_ESP",
+)
 logger = logging.getLogger(__name__)
 
 
