@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from pymatgen.io.aims.sets.core import RelaxSetGenerator
-
 from atomate2.aims.flows.phonons import PhononMaker
 from atomate2.aims.jobs.core import RelaxMaker, StaticMaker
 from atomate2.aims.jobs.eos import EosRelaxMaker
@@ -54,15 +52,9 @@ class QhaMaker(CommonQhaMaker):
 
     """
 
-    name: str = "VASP QHA Maker"
+    name: str = "Aims QHA Maker"
     initial_relax_maker: RelaxMaker | None = field(default_factory=RelaxMaker)
-    eos_relax_maker: EosRelaxMaker | None = field(
-        default_factory=lambda: EosRelaxMaker(
-            input_set_generator=RelaxSetGenerator(
-                user_incar_settings={"ISIF": 2},
-            )
-        )
-    )
+    eos_relax_maker: EosRelaxMaker | None = field(default_factory=EosRelaxMaker)
     phonon_displacement_maker: StaticMaker | None = field(default_factory=StaticMaker)
     phonon_static_maker: StaticMaker | None = field(default_factory=StaticMaker)
     phonon_maker_kwargs: dict = field(default_factory=dict)
