@@ -12,7 +12,9 @@ import numpy as np
 from emmet.core.math import Matrix3D, Vector3D
 from emmet.core.structure import MoleculeMetadata, StructureMetadata
 from emmet.core.symmetry import PointGroupData, SymmetryData
+from emmet.core.task import BaseTaskDocument
 from emmet.core.tasks import get_uri
+from emmet.core.vasp.calc_types.enums import TaskType
 from pydantic import BaseModel, Field
 from pymatgen.core import Molecule, Structure
 from pymatgen.entries.computed_entries import ComputedEntry
@@ -143,6 +145,8 @@ class InputDoc(BaseModel):
         The input pymatgen Structure or Molecule of the system
     species_info: .SpeciesSummary
         Summary of the species defaults used for each atom kind
+    parameters: dict[str, Any]
+        The parameters passed in the control.in file
     xc: str
         Exchange-correlation functional used if not the default
     """
@@ -153,8 +157,14 @@ class InputDoc(BaseModel):
     species_info: SpeciesSummary = Field(
         None, description="Summary of the species defaults used for each atom kind"
     )
+    parameters: dict[str, Any] = Field(
+        {}, description="The input parameters for FHI-aims"
+    )
     xc: str = Field(
         None, description="Exchange-correlation functional used if not the default"
+    )
+    magnetic_moments: Optional[list[float]] = Field(
+        None, description="Magnetic moments for each atom"
     )
 
     @classmethod
@@ -172,11 +182,18 @@ class InputDoc(BaseModel):
             A summary of the input structure and parameters.
         """
         summary = SpeciesSummary.from_species_info(calc_doc.input.species_info)
+        structure = calc_doc.input.structure
+        magnetic_moments = None
+        if "magmom" in structure.site_properties:
+            magnetic_moments = structure.site_properties["magmom"]
+
 
         return cls(
-            structure=calc_doc.input.structure,
+            structure=structure,
+            parameters=calc_doc.input.parameters,
+            xc=calc_doc.input.parameters["xc"],
+            magnetic_moments=magnetic_moments,
             atomic_kind_info=summary,
-            xc=str(calc_doc.run_type),
         )
 
 
@@ -389,15 +406,19 @@ class ConvergenceSummary(BaseModel):
         )
 
 
-class AimsTaskDoc(StructureMetadata, MoleculeMetadata):
+class AimsTaskDoc(BaseTaskDocument, StructureMetadata, MoleculeMetadata):
     """Definition of FHI-aims task document.
 
     Parameters
     ----------
+    calc_code: str
+        The calculation code used to compute the task
     dir_name: str
         The directory for this FHI-aims task
     last_updated: str
         Timestamp for this task document was last updated
+    completed: bool
+        Whether this calculation completed
     completed_at: str
         Timestamp for when this task was completed
     input: .InputDoc
@@ -436,11 +457,13 @@ class AimsTaskDoc(StructureMetadata, MoleculeMetadata):
         Additional json loaded from the calculation directory
     """
 
+    calc_code: str = "aims"
     dir_name: str = Field(None, description="The directory for this FHI-aims task")
     last_updated: str = Field(
         default_factory=datetime_str,
         description="Timestamp for this task document was last updated",
     )
+    completed: bool = Field(None, description="Whether this calculation completed")
     completed_at: str = Field(
         None, description="Timestamp for when this task was completed"
     )
@@ -559,11 +582,14 @@ class AimsTaskDoc(StructureMetadata, MoleculeMetadata):
 
         data = {
             "structure": structure,
+            "meta_structure": calcs_reversed[-1].output.structure,
             "dir_name": dir_name,
             "calcs_reversed": calcs_reversed,
             "analysis": analysis,
             "tags": tags,
+            "completed": calcs_reversed[-1].completed,
             "completed_at": calcs_reversed[-1].completed_at,
+            "input": InputDoc.from_aims_calc_doc(calcs_reversed[-1]),
             "output": OutputDoc.from_aims_calc_doc(calcs_reversed[-1]),
             "state": _get_state(calcs_reversed, analysis),
             "entry": cls.get_entry(calcs_reversed),
@@ -610,6 +636,17 @@ class AimsTaskDoc(StructureMetadata, MoleculeMetadata):
             },
         }
         return ComputedEntry.from_dict(entry_dict)
+
+    # TARP: This is done because the mangnetism schema assume that VASP
+    #       TaskTypes are used. I think this should be changed, but that
+    #       would require modifications in emmet
+    @property
+    def task_type(self) -> TaskType:
+        """Get the task type of the calculation."""
+        if "Relaxation calculation" in self.task_label:
+            return TaskType("Structure Optimization")
+
+        return TaskType("Static")
 
 
 def _find_aims_files(
