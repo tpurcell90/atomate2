@@ -7,9 +7,12 @@ from typing import TYPE_CHECKING
 
 from jobflow.core.maker import recursive_call
 
-from atomate2.aims.jobs.core import RelaxMaker
+from atomate2.aims.jobs.core import RelaxMaker, StaticMaker
 from atomate2.aims.schemas.task import AimsTaskDoc
-from atomate2.aims.sets.defect import ChargeStateRelaxSetGenerator
+from atomate2.aims.sets.defect import (
+    ChargeStateStaticSetGenerator,
+    ChargeStateRelaxSetGenerator
+)
 from atomate2.common.flows import defect as defect_flows
 
 if TYPE_CHECKING:
@@ -17,6 +20,16 @@ if TYPE_CHECKING:
 
     from atomate2.aims.jobs.base import BaseAimsMaker
 
+
+DEFECT_KPOINT_SETTINGS = {"k_grid_density": 3}
+
+DEFECT_RELAX_GENERATOR = ChargeStateRelaxSetGenerator(
+    use_structure_charge=True,
+    user_kpoints_settings=DEFECT_KPOINT_SETTINGS,
+)
+DEFECT_STATIC_GENERATOR = ChargeStateStaticSetGenerator(
+    user_kpoints_settings=DEFECT_KPOINT_SETTINGS,
+)
 
 @dataclass
 class FormationEnergyMaker(defect_flows.FormationEnergyMaker):
@@ -118,3 +131,33 @@ class FormationEnergyMaker(defect_flows.FormationEnergyMaker):
             class_filter=RelaxMaker,
             nested=True,
         )
+
+
+@dataclass
+class ConfigurationCoordinateMaker(defect_flows.ConfigurationCoordinateMaker):
+    """Maker to generate a configuration coordinate diagram.
+
+    Parameters
+    ----------
+    name: str
+        The name of the flow created by this maker.
+    relax_maker: BaseAimsMaker or None
+        A maker to perform a atomic-position-only relaxation on the defect charge
+        states.
+    static_maker: BaseAimsMaker or None
+        A maker to perform the single-shot static calculation of the distorted
+        structures.
+    distortions: tuple[float, ...]
+        The distortions, as a fraction of ΔQ, to use in the calculation of the
+        configuration coordinate diagram.
+    """
+
+    relax_maker: BaseAimsMaker = field(
+        default_factory=lambda: RelaxMaker(
+            input_set_generator=DEFECT_RELAX_GENERATOR,
+        )
+    )
+    static_maker: BaseAimsMaker = field(
+        default_factory=lambda: StaticMaker(input_set_generator=DEFECT_STATIC_GENERATOR)
+    )
+    name: str = "config coordinate"
