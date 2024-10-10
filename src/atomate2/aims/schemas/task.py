@@ -187,7 +187,6 @@ class InputDoc(BaseModel):
         if "magmom" in structure.site_properties:
             magnetic_moments = structure.site_properties["magmom"]
 
-
         return cls(
             structure=structure,
             parameters=calc_doc.input.parameters,
