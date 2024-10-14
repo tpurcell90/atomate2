@@ -115,7 +115,7 @@ class SpeciesSummary(BaseModel):
     )
 
     @classmethod
-    def from_species_info(cls, species_info: dict[str, dict[str, Any]]) -> Self:
+    def from_species_info(cls, species_info: str | dict[str, dict[str, Any]]) -> Self:
         """Initialize from the atomic_kind_info dictionary.
 
         Parameters
@@ -181,11 +181,19 @@ class InputDoc(BaseModel):
         .InputDoc
             A summary of the input structure and parameters.
         """
-        summary = SpeciesSummary.from_species_info(calc_doc.input.species_info)
         structure = calc_doc.input.structure
+        species_dir = calc_doc.input.parameters["species_dir"]
+        if isinstance(species_dir, str):
+            species_info = {str(species): {
+                "element": species.symbol,
+                "species_defaults": species_dir,
+            } for species in structure.species}
+        else:
+            species_info = species_dir
         magnetic_moments = None
         if "magmom" in structure.site_properties:
             magnetic_moments = structure.site_properties["magmom"]
+        summary = SpeciesSummary.from_species_info(species_info)
 
         return cls(
             structure=structure,
@@ -575,13 +583,11 @@ class AimsTaskDoc(BaseTaskDocument, StructureMetadata, MoleculeMetadata):
         if aims_objects:
             included_objects = list(aims_objects.keys())
 
-        # get structure specific keywords from emmet base classes
+        # get structure-specific keywords from emmet base classes
         # rewrite the original structure save!
         structure = calcs_reversed[-1].output.structure
 
         data = {
-            "structure": structure,
-            "meta_structure": calcs_reversed[-1].output.structure,
             "dir_name": dir_name,
             "calcs_reversed": calcs_reversed,
             "analysis": analysis,
