@@ -11,15 +11,20 @@ from pymatgen.io.aims.sets.core import RelaxSetGenerator, StaticSetGenerator
 class ChargeStateRelaxSetGenerator(RelaxSetGenerator):
     """Generator for atomic-only relaxation for defect supercell calculations.
     """
-
     relax_cell: bool = False
     use_structure_charge: bool = True
 
+    def __post_init__(self):
+        if "species_dir" not in self.user_params:
+            self.user_params["species_dir"] = "light"
 
 
 @dataclass
 class ChargeStateStaticSetGenerator(StaticSetGenerator):
     """Generator for static defect supercell calculations.
     """
-
     use_structure_charge: bool = True
+
+    def __post_init__(self):
+        if "species_dir" not in self.user_params:
+            self.user_params["species_dir"] = "light"
