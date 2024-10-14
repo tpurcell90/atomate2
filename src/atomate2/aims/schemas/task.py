@@ -115,7 +115,7 @@ class SpeciesSummary(BaseModel):
     )
 
     @classmethod
-    def from_species_info(cls, species_info: str | dict[str, dict[str, Any]]) -> Self:
+    def from_species_info(cls, species_info: dict[str, dict[str, Any]]) -> Self:
         """Initialize from the atomic_kind_info dictionary.
 
         Parameters
@@ -185,10 +185,13 @@ class InputDoc(BaseModel):
         structure = calc_doc.input.structure
         species_dir = calc_doc.input.parameters["species_dir"]
         if isinstance(species_dir, str):
-            species_info = {str(species): {
-                "element": species.symbol,
-                "species_defaults": species_dir,
-            } for species in structure.species}
+            species_info = {
+                str(species): {
+                    "element": species.symbol,
+                    "species_defaults": species_dir,
+                }
+                for species in structure.species
+            }
         else:
             species_info = species_dir
         magnetic_moments = None
