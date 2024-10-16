@@ -181,7 +181,6 @@ class InputDoc(BaseModel):
         .InputDoc
             A summary of the input structure and parameters.
         """
-        summary = SpeciesSummary.from_species_info(calc_doc.input.species_info)
         structure = calc_doc.input.structure
         species_dir = calc_doc.input.parameters["species_dir"]
         if isinstance(species_dir, str):
@@ -197,15 +196,14 @@ class InputDoc(BaseModel):
         magnetic_moments = None
         if "magmom" in structure.site_properties:
             magnetic_moments = structure.site_properties["magmom"]
-        summary = SpeciesSummary.from_species_info(calc_doc.input.species_info)
+        summary = SpeciesSummary.from_species_info(species_info)
 
         return cls(
             structure=structure,
             parameters=calc_doc.input.parameters,
             xc=calc_doc.input.parameters["xc"],
             magnetic_moments=magnetic_moments,
-            atomic_kind_info=summary,
-
+            species_info=summary,
         )
 
 
@@ -591,7 +589,6 @@ class AimsTaskDoc(BaseTaskDocument, StructureMetadata, MoleculeMetadata):
         # get structure-specific keywords from emmet base classes
         # rewrite the original structure save!
         structure = calcs_reversed[-1].output.structure
-
         data = {
             "structure": structure,
             "dir_name": dir_name,
