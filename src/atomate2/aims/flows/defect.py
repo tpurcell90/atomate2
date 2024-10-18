@@ -139,7 +139,7 @@ class FormationEnergyMaker(defect_flows.FormationEnergyMaker):
             input_set_generator=ChargeStateRelaxSetGenerator(
                 user_params={"k_grid": [1, 1, 1], "species_dir": "light"}
             ),
-            task_document_kwargs={"store_volumetric_data": "realspace_ESP"},
+            task_document_kwargs={"store_planar_average_data": ["realspace_ESP", ]},
         )
     )
     bulk_relax_maker: RelaxMaker | None = None
@@ -195,8 +195,7 @@ class FormationEnergyMaker(defect_flows.FormationEnergyMaker):
         planar_locpot: dict
             The planar average locpot.
         """
-        locpot = task_doc.aims_objects[AimsObject.LOCPOT]
-        return {i: locpot.get_average_along_axes(i) for i in range(3)}
+        return task_doc.aims_objects[AimsObject.LOCPOT]
 
     def validate_maker(self) -> None:
         """Check some key settings in the relax maker.

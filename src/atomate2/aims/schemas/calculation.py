@@ -265,6 +265,7 @@ class Calculation(BaseModel):
         parse_bandstructure: str | bool = False,
         store_trajectory: bool = False,
         store_volumetric_data: Optional[Sequence[str]] = STORE_VOLUMETRIC_DATA,
+        store_planar_average_data: Optional[Sequence[str]] = None,
     ) -> tuple[Self, dict[AimsObject, dict]]:
         """Create an FHI-aims calculation document from a directory and file paths.
 
@@ -306,6 +307,8 @@ class Calculation(BaseModel):
             Whether to store the SCF convergence data.
         store_volumetric_data: Sequence[str] or None
             Which volumetric files to store.
+        store_planar_average_data: Sequence[str] or None
+            Which volumetric data files to store in planar average form
 
         Returns
         -------
@@ -316,7 +319,6 @@ class Calculation(BaseModel):
         aims_output_file = dir_name / aims_output_file
 
         volumetric_files = [] if volumetric_files is None else volumetric_files
-        print("CALC DEBUG: ", volumetric_files)
         aims_geo_in = AimsGeometryIn.from_file(dir_name / "geometry.in")
         with open(str(dir_name / "parameters.json")) as pj:
             aims_parameters = json.load(pj)
@@ -332,7 +334,7 @@ class Calculation(BaseModel):
 
         output_file_paths = _get_output_file_paths(volumetric_files)
         aims_objects: dict[AimsObject, Any] = _get_volumetric_data(
-            dir_name, output_file_paths, store_volumetric_data
+            dir_name, output_file_paths, store_volumetric_data, store_planar_average_data
         )
 
         dos = _parse_dos(parse_dos, aims_output)
@@ -393,7 +395,8 @@ def _get_volumetric_data(
     dir_name: Path,
     output_file_paths: dict[AimsObject, str],
     store_volumetric_data: Optional[Sequence[str]],
-) -> dict[AimsObject, VolumetricData]:
+    store_planar_average_data: Optional[Sequence[str]],
+) -> dict[AimsObject, VolumetricData | dict[int, np.ndarray]]:
     """
     Load volumetric data files from a directory.
 
@@ -405,28 +408,34 @@ def _get_volumetric_data(
         A dictionary mapping the data type to file path relative to dir_name.
     store_volumetric_data: Sequence[str] or None
         The volumetric data files to load.
+    store_planar_average_data: Sequence[str] or None
+        The volumetric data files to store in planar average form.
 
     Returns
     -------
-    Dict[AimsObject, VolumetricData]
-        A dictionary mapping the FHI-aims object data type (`AimsObject.total_density`,
-        `AimsObject.electron_density`, etc) to the volumetric data object.
+    Dict[AimsObject, VolumetricData | dict[int, np.ndarray]
+        A dictionary mapping the FHI-aims object data type to the
+        volumetric data object or the dictionary of planar averages of the data.
     """
-    if store_volumetric_data is None or len(store_volumetric_data) == 0:
+    store_volumetric_data = store_volumetric_data or []
+    store_planar_average_data = store_planar_average_data or []
+    if not (store_volumetric_data or store_planar_average_data):
         return {}
 
-    volumetric_data = {}
+    aims_objects = {}
     for file_type, file in output_file_paths.items():
-        if file_type.value not in store_volumetric_data:
+        if file_type.value not in store_volumetric_data and file_type.value not in store_planar_average_data:
             continue
         try:
-            volumetric_data[file_type] = VolumetricData.from_cube(
-                (dir_name / file).as_posix()
-            )
+            volumetric_data = VolumetricData.from_cube((dir_name / file).as_posix())
+            if file_type.value in store_volumetric_data:
+                aims_objects[file_type] = volumetric_data
+            else:
+                aims_objects[file_type] = {i: volumetric_data.get_average_along_axis(i) for i in range(3)}
         except Exception as err:
             raise ValueError(f"Failed to parse {file_type} at {file}.") from err
 
-    return volumetric_data
+    return aims_objects
 
 
 def _parse_dos(parse_dos: str | bool, aims_output: AimsOutput) -> Optional[Dos]:
