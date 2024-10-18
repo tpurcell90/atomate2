@@ -51,6 +51,7 @@ class AimsObject(ValueEnum):
     ELECTRON_DENSITY = "electron_density"  # e_density
     WFN = "wfn"  # Wavefunction file
     TRAJECTORY = "trajectory"
+    LOCPOT = "realspace_ESP"
 
 
 class CalculationOutput(BaseModel):
@@ -83,7 +84,7 @@ class CalculationOutput(BaseModel):
     vbm: float
         The valence band maximum in eV (if system is not metallic)
     atomic_steps: list[Structure or Molecule]
-        Structures for each ionic step"
+        Structures for each ionic step
     """
 
     energy: float = Field(
@@ -315,9 +316,8 @@ class Calculation(BaseModel):
         aims_output_file = dir_name / aims_output_file
 
         volumetric_files = [] if volumetric_files is None else volumetric_files
-
+        print("CALC DEBUG: ", volumetric_files)
         aims_geo_in = AimsGeometryIn.from_file(dir_name / "geometry.in")
-        aims_parameters = {}
         with open(str(dir_name / "parameters.json")) as pj:
             aims_parameters = json.load(pj)
 
@@ -384,7 +384,7 @@ def _get_output_file_paths(volumetric_files: list[str]) -> dict[AimsObject, str]
     output_file_paths = {}
     for aims_object in AimsObject:  # type: ignore  # noqa: PGH003
         for volumetric_file in volumetric_files:
-            if aims_object.name in str(volumetric_file):
+            if aims_object.value in str(volumetric_file):
                 output_file_paths[aims_object] = str(volumetric_file)
     return output_file_paths
 
@@ -417,7 +417,7 @@ def _get_volumetric_data(
 
     volumetric_data = {}
     for file_type, file in output_file_paths.items():
-        if file_type.name not in store_volumetric_data:
+        if file_type.value not in store_volumetric_data:
             continue
         try:
             volumetric_data[file_type] = VolumetricData.from_cube(

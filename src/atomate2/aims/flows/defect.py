@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from jobflow.core.maker import recursive_call
 
 from atomate2.aims.jobs.core import RelaxMaker, StaticMaker
+from atomate2.aims.schemas.calculation import AimsObject
 from atomate2.aims.schemas.task import AimsTaskDoc
 from atomate2.aims.sets.defect import (
     ChargeStateRelaxSetGenerator,
@@ -37,10 +38,10 @@ class FormationEnergyMaker(defect_flows.FormationEnergyMaker):
     """Maker class to help calculate of the formation energy diagram.
 
     Maker class to calculate formation energy diagrams. The main settings for
-    this maker is the `defect_relax_maker` which contains the settings for the atomic
+    this maker is the `defect_relax_maker` that contain the settings for the atomic
     relaxations that each defect supercell will undergo.
 
-    This maker can be used as a stand-alone maker to calculate all of the data
+    This maker can be used as a stand-alone maker to calculate all the data
     needed to populate the `DefectEntry` object. However, for you can also use this
     maker with `uc_bulk` set to True (also set `collect_defect_entry_data` to False
     and `bulk_relax_maker` to None).  This will skip the bulk supercell calculations
@@ -137,7 +138,8 @@ class FormationEnergyMaker(defect_flows.FormationEnergyMaker):
         default_factory=lambda: RelaxMaker(
             input_set_generator=ChargeStateRelaxSetGenerator(
                 user_params={"k_grid": [1, 1, 1], "species_dir": "light"}
-            )
+            ),
+            task_document_kwargs={"store_volumetric_data": "realspace_ESP"},
         )
     )
     bulk_relax_maker: RelaxMaker | None = None
@@ -193,7 +195,8 @@ class FormationEnergyMaker(defect_flows.FormationEnergyMaker):
         planar_locpot: dict
             The planar average locpot.
         """
-        return task_doc.calcs_reversed[0].output.locpot
+        locpot = task_doc.aims_objects[AimsObject.LOCPOT]
+        return {i: locpot.get_average_along_axes(i) for i in range(3)}
 
     def validate_maker(self) -> None:
         """Check some key settings in the relax maker.

@@ -127,7 +127,7 @@ class BaseAimsMaker(Maker):
         # gzip folder
         gzip_output_folder(
             directory=Path.cwd(),
-            setting=SETTINGS.VASP_ZIP_FILES,
+            setting=SETTINGS.AIMS_ZIP_FILES,
             files_list=_FILES_TO_ZIP,
         )
 

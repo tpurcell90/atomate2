@@ -700,7 +700,7 @@ def _find_aims_files(
             if file.match(f"*aims.out{suffix}*"):
                 aims_files["aims_output_file"] = Path(file).name
         for vol in volumetric_files:
-            _files = [f.name for f in files if f.match(f"*{vol}*cube{suffix}*")]
+            _files = [f.name for f in files if f.match(f"*{vol}*{suffix}*")]
             if _files:
                 vol_files.append(_files[0])
 
