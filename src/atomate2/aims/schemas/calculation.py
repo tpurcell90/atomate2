@@ -266,7 +266,7 @@ class Calculation(BaseModel):
         store_trajectory: bool = False,
         store_volumetric_data: Optional[Sequence[str]] = STORE_VOLUMETRIC_DATA,
         store_planar_average_data: Optional[Sequence[str]] = None,
-    ) -> tuple[Self, dict[AimsObject, dict]]:
+    ) -> tuple[Self, dict[str, dict]]:
         """Create an FHI-aims calculation document from a directory and file paths.
 
         Parameters
@@ -333,17 +333,17 @@ class Calculation(BaseModel):
         )
 
         output_file_paths = _get_output_file_paths(volumetric_files)
-        aims_objects: dict[AimsObject, Any] = _get_volumetric_data(
+        aims_objects: dict[str, Any] = _get_volumetric_data(
             dir_name, output_file_paths, store_volumetric_data, store_planar_average_data
         )
 
         dos = _parse_dos(parse_dos, aims_output)
         if dos is not None:
-            aims_objects[AimsObject.DOS] = dos  # type: ignore  # noqa: PGH003
+            aims_objects[AimsObject.DOS.value] = dos  # type: ignore  # noqa: PGH003
 
         bandstructure = _parse_bandstructure(parse_bandstructure, aims_output)
         if bandstructure is not None:
-            aims_objects[AimsObject.BANDSTRUCTURE] = bandstructure  # type: ignore  # noqa: PGH003
+            aims_objects[AimsObject.BANDSTRUCTURE.value] = bandstructure  # type: ignore  # noqa: PGH003
 
         output_doc = CalculationOutput.from_aims_output(aims_output)
 
@@ -353,7 +353,7 @@ class Calculation(BaseModel):
 
         if store_trajectory:
             traj = _parse_trajectory(aims_output=aims_output)
-            aims_objects[AimsObject.TRAJECTORY] = traj  # type: ignore  # noqa: PGH003
+            aims_objects[AimsObject.TRAJECTORY.value] = traj  # type: ignore  # noqa: PGH003
 
         instance = cls(
             dir_name=str(dir_name),
@@ -396,7 +396,7 @@ def _get_volumetric_data(
     output_file_paths: dict[AimsObject, str],
     store_volumetric_data: Optional[Sequence[str]],
     store_planar_average_data: Optional[Sequence[str]],
-) -> dict[AimsObject, VolumetricData | dict[int, np.ndarray]]:
+) -> dict[str, VolumetricData | dict[int, np.ndarray]]:
     """
     Load volumetric data files from a directory.
 
@@ -429,9 +429,9 @@ def _get_volumetric_data(
         try:
             volumetric_data = VolumetricData.from_cube((dir_name / file).as_posix())
             if file_type.value in store_volumetric_data:
-                aims_objects[file_type] = volumetric_data
+                aims_objects[file_type.value] = volumetric_data
             else:
-                aims_objects[file_type] = {i: volumetric_data.get_average_along_axis(i) for i in range(3)}
+                aims_objects[file_type.value] = {i: volumetric_data.get_average_along_axis(i) for i in range(3)}
         except Exception as err:
             raise ValueError(f"Failed to parse {file_type} at {file}.") from err
 

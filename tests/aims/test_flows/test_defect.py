@@ -6,7 +6,7 @@ from jobflow import run_locally
 # from numpy.testing import assert_allclose
 from pymatgen.core import Structure
 
-from atomate2.aims.flows.defect import ConfigurationCoordinateMaker
+from atomate2.aims.flows.defect import ConfigurationCoordinateMaker, FormationEnergyMaker
 from atomate2.common.schemas.defects import CCDDocument
 
 
@@ -24,10 +24,6 @@ def test_ccd_maker(si, tmp_path, mock_aims, test_dir, species_dir):
 
     # automatically use fake FHI-aims
     mock_aims(ref_paths, fake_run_aims_kwargs)
-
-    parameters = {
-        "species_dir": (species_dir / "light").as_posix(),
-    }
 
     # generate flow
     si_defect = Structure.from_file(
@@ -61,3 +57,44 @@ def test_ccd_maker(si, tmp_path, mock_aims, test_dir, species_dir):
     #     atol=1e-6,
     # )
     # assert elastic_output.chemsys == "Si"
+
+
+def test_fe_maker(si, tmp_path, mock_aims, test_dir, species_dir):
+    from pymatgen.analysis.defects.generators import VacancyGenerator
+
+    ref_paths = {
+        "bulk relax": "defect-fe-si/bulk-relax",
+    }
+
+    # settings passed to fake_run_aims; adjust these to check for certain input settings
+    fake_run_aims_kwargs = {}
+
+    # automatically use fake FHI-aims
+    mock_aims(ref_paths, fake_run_aims_kwargs)
+
+    defects = list(
+        VacancyGenerator().get_defects(
+            structure=si, rm_species=["Si"]
+        )
+    )
+    # generate flow
+    maker = FormationEnergyMaker(
+        relax_radius="auto",
+        perturb=0.1,
+        collect_defect_entry_data=True,
+        validate_charge=False,
+    )
+    flow = maker.make(
+        defects[0],
+        supercell_matrix=[[2, 2, 0], [2, -2, 0], [0, 0, 1]],
+        defect_index=0,
+    )
+
+    # Run the flow or job and ensure that it finished running successfully
+    os.chdir(tmp_path)
+    responses = run_locally(flow, create_folders=True, ensure_success=True)
+    os.chdir(cwd)
+
+    # validation on the outputs
+    ccd_output = responses[flow.jobs[-1].uuid][1].output
+    assert isinstance(ccd_output, CCDDocument)

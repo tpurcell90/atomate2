@@ -177,7 +177,7 @@ class FormationEnergyMaker(defect_flows.FormationEnergyMaker):
         entry: ComputedStructureEntry
         """
         task_doc = AimsTaskDoc.from_directory(previous_dir)
-        return task_doc.structure_entry, task_doc.calcs_reversed[0].output.locpot
+        return task_doc.structure_entry, task_doc.aims_objects[AimsObject.LOCPOT.value]
 
     def get_planar_locpot(self, task_doc: AimsTaskDoc) -> dict:
         """Get the Planar Locpot from the TaskDoc.
@@ -195,7 +195,7 @@ class FormationEnergyMaker(defect_flows.FormationEnergyMaker):
         planar_locpot: dict
             The planar average locpot.
         """
-        return task_doc.aims_objects[AimsObject.LOCPOT]
+        return task_doc.aims_objects[AimsObject.LOCPOT.value]
 
     def validate_maker(self) -> None:
         """Check some key settings in the relax maker.

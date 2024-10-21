@@ -491,7 +491,7 @@ class AimsTaskDoc(BaseTaskDocument, StructureMetadata, MoleculeMetadata):
     included_objects: Optional[list[AimsObject]] = Field(
         None, description="List of FHI-aims objects included with this task document"
     )
-    aims_objects: Optional[dict[AimsObject, Any]] = Field(
+    aims_objects: Optional[dict[str, Any]] = Field(
         None, description="FHI-aims objects associated with this task"
     )
     entry: Optional[ComputedEntry] = Field(
@@ -700,12 +700,12 @@ def _find_aims_files(
             if file.match(f"*aims.out{suffix}*"):
                 aims_files["aims_output_file"] = Path(file).name
         for vol in volumetric_files:
-            _files = [f.name for f in files if f.match(f"*{vol}*{suffix}*")]
+            _files = [f.name for f in files if f.match(f"{vol}*{suffix}*")]
             if _files:
                 vol_files.append(_files[0])
 
         if len(vol_files) > 0:
-            # add volumetric files if some were found or other cp2k files were found
+            # add volumetric files if some were found
             aims_files["volumetric_files"] = vol_files
 
         return aims_files
