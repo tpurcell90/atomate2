@@ -457,6 +457,7 @@ class FormationEnergyMaker(Maker, ABC):
             relax_radius=self.relax_radius,
             perturb=self.perturb,
             validate_charge=self.validate_charge,
+            get_planar_locpot=self.get_planar_locpot,
         )
 
         if self.uc_bulk:

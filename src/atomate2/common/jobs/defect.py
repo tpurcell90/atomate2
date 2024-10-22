@@ -307,6 +307,7 @@ def spawn_defect_q_jobs(
     validate_charge: bool = True,
     relax_radius: float | str | None = None,
     perturb: float | None = None,
+    get_planar_locpot: Callable | None = None,
 ) -> Response:
     """Perform charge defect supercell calculations.
 
@@ -343,6 +344,8 @@ def spawn_defect_q_jobs(
     perturb:
         The amount to perturb the sites in the supercell. Only perturb the sites with
         selective dynamics set to True. So this setting only works with `relax_radius`.
+    get_planar_locpot : Callable | None
+        A function to get the Locpot from the output of the task document.
 
     Returns
     -------
@@ -350,6 +353,11 @@ def spawn_defect_q_jobs(
         A response object containing the summary of the calculations for different
         charge states.
     """
+    if get_planar_locpot is None:
+
+        def get_planar_locpot(task_doc: TaskDoc) -> NDArray:
+            return task_doc.calcs_reversed[0].output.locpot
+
     defect_q_jobs = []
     all_chg_outputs = {}
     sc_def_struct = defect.get_supercell_structure(
@@ -394,7 +402,7 @@ def spawn_defect_q_jobs(
             "entry": charged_output.entry,
             "dir_name": charged_output.dir_name,
             "uuid": charged_relax.uuid,
-            "locpot_plnr": charged_output.calcs_reversed[0].output.locpot,
+            "locpot_plnr": get_planar_locpot(charged_output),
         }
         # check that the charge state was set correctly
         if validate_charge:
