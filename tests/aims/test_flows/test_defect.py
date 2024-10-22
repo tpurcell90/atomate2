@@ -3,12 +3,15 @@
 import os
 
 from jobflow import run_locally
+
 # from numpy.testing import assert_allclose
 from pymatgen.core import Structure
 
-from atomate2.aims.flows.defect import ConfigurationCoordinateMaker, FormationEnergyMaker
+from atomate2.aims.flows.defect import (
+    ConfigurationCoordinateMaker,
+    FormationEnergyMaker,
+)
 from atomate2.common.schemas.defects import CCDDocument
-
 
 cwd = os.getcwd()
 
@@ -64,6 +67,9 @@ def test_fe_maker(si, tmp_path, mock_aims, test_dir, species_dir):
 
     ref_paths = {
         "bulk relax": "defect-fe-si/bulk-relax",
+        "Relaxation calculation v_Si-0 q=-1": "defect-fe-si/v_Si-0_q=-1",
+        "Relaxation calculation v_Si-0 q=0": "defect-fe-si/v_Si-0_q=0",
+        "Relaxation calculation v_Si-0 q=1": "defect-fe-si/v_Si-0_q=1",
     }
 
     # settings passed to fake_run_aims; adjust these to check for certain input settings
@@ -72,11 +78,7 @@ def test_fe_maker(si, tmp_path, mock_aims, test_dir, species_dir):
     # automatically use fake FHI-aims
     mock_aims(ref_paths, fake_run_aims_kwargs)
 
-    defects = list(
-        VacancyGenerator().get_defects(
-            structure=si, rm_species=["Si"]
-        )
-    )
+    defects = list(VacancyGenerator().get_defects(structure=si, rm_species=["Si"]))
     # generate flow
     maker = FormationEnergyMaker(
         relax_radius="auto",

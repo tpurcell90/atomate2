@@ -131,6 +131,9 @@ class CalculationOutput(BaseModel):
     atomic_steps: list[Union[Structure, Molecule]] = Field(
         None, description="Structures for each ionic step"
     )
+    locpot: Optional[dict[int, Any]] = Field(
+        {}, description="Planar averaged local potential"
+    )
 
     @classmethod
     def from_aims_output(
@@ -334,7 +337,10 @@ class Calculation(BaseModel):
 
         output_file_paths = _get_output_file_paths(volumetric_files)
         aims_objects: dict[str, Any] = _get_volumetric_data(
-            dir_name, output_file_paths, store_volumetric_data, store_planar_average_data
+            dir_name,
+            output_file_paths,
+            store_volumetric_data,
+            store_planar_average_data,
         )
 
         dos = _parse_dos(parse_dos, aims_output)
@@ -424,14 +430,19 @@ def _get_volumetric_data(
 
     aims_objects = {}
     for file_type, file in output_file_paths.items():
-        if file_type.value not in store_volumetric_data and file_type.value not in store_planar_average_data:
+        if (
+            file_type.value not in store_volumetric_data
+            and file_type.value not in store_planar_average_data
+        ):
             continue
         try:
             volumetric_data = VolumetricData.from_cube((dir_name / file).as_posix())
             if file_type.value in store_volumetric_data:
                 aims_objects[file_type.value] = volumetric_data
             else:
-                aims_objects[file_type.value] = {i: volumetric_data.get_average_along_axis(i) for i in range(3)}
+                aims_objects[file_type.value] = {
+                    i: volumetric_data.get_average_along_axis(i) for i in range(3)
+                }
         except Exception as err:
             raise ValueError(f"Failed to parse {file_type} at {file}.") from err
 
