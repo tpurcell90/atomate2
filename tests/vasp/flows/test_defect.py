@@ -167,11 +167,45 @@ def test_formation_energy_maker(mock_vasp, clean_dir, test_dir, monkeypatch):
     )
 
     # run the flow and ensure that it finished running successfully
-    _ = run_locally(
+    flow = run_locally(
         flow,
         create_folders=True,
         ensure_success=True,
     )
+    result = SETTINGS.JOB_STORE.query_one({"name": "get_defect_entry"})["output"]
+    bulk_output = SETTINGS.JOB_STORE.query_one({"uuid": result[0]["bulk_uuid"]})[
+        "output"
+    ]["output"]
+    bulk_struct = Structure.from_dict(bulk_output["structure"])
+
+    import numpy as np
+    from pymatgen.analysis.defects.corrections.freysoldt import get_freysoldt_correction
+    from pymatgen.analysis.defects.finder import DefectSiteFinder
+    from pymatgen.analysis.defects.thermo import DefectEntry
+
+    finder = DefectSiteFinder()
+    freysoldt_results = dict()
+    for i in range(4):
+        defect = DefectEntry.from_dict(result[i]["defect_entry"])
+        q = defect.charge_state
+        defect_struct = defect.sc_entry.structure
+
+        center = finder.get_defect_fpos(
+            defect_structure=defect_struct, base_structure=bulk_struct
+        )
+        center -= np.round(center)
+        print(f"Computing Freysoldt Correction for: q={defect.charge_state}")
+        print(f"center={center}")
+        freysoldt_results[q] = get_freysoldt_correction(
+            q=q,
+            dielectric=5,
+            bulk_locpot=result[i]["bulk_locpot"],
+            defect_locpot=result[i]["defect_locpot"],
+            defect_frac_coords=center,
+            lattice=defect_struct.lattice,
+        )
+        align = np.mean(list(freysoldt_results[q].metadata["alignments"].values()))
+        print(f"alignment correction: {align}")
 
     def _check_plnr_locpot(name):
         job = SETTINGS.JOB_STORE.query_one({"output.task_label": name})

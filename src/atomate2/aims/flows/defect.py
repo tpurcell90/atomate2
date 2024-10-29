@@ -15,6 +15,7 @@ from atomate2.aims.sets.defect import (
     ChargeStateStaticSetGenerator,
 )
 from atomate2.common.flows import defect as defect_flows
+from atomate2.vasp.flows.defect import NonRadiativeMaker as NonRadiativeMakerVasp
 
 if TYPE_CHECKING:
     from pymatgen.entries.computed_entries import ComputedStructureEntry
@@ -139,7 +140,7 @@ class FormationEnergyMaker(defect_flows.FormationEnergyMaker):
             input_set_generator=ChargeStateRelaxSetGenerator(
                 user_params={"k_grid": [1, 1, 1], "species_dir": "light"}
             ),
-            task_document_kwargs={"store_planar_average_data": ["realspace_ESP", ]},
+            task_document_kwargs={"store_planar_average_data": ["realspace_ESP"]},
         )
     )
     bulk_relax_maker: RelaxMaker | None = None
@@ -250,3 +251,18 @@ class ConfigurationCoordinateMaker(defect_flows.ConfigurationCoordinateMaker):
         default_factory=lambda: StaticMaker(input_set_generator=DEFECT_STATIC_GENERATOR)
     )
     name: str = "config coordinate"
+
+
+class NonRadiativeMaker(NonRadiativeMakerVasp):
+    """Maker to calculate non-radiative defect capture.
+
+    Parameters
+    ----------
+    name: str
+        The name of the flow created by this maker.
+    ccd_maker: ConfigurationCoordinateMaker
+        A maker to perform the calculation of the configuration coordinate diagram.
+    """
+
+    ccd_maker: ConfigurationCoordinateMaker
+    name: str = "non-radiative"
