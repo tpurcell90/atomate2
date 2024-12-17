@@ -26,6 +26,8 @@ class BaseAEWFMaker(Maker):
         Relaxation maker for finding a good central volume
     store_directory: str | Path |None
         Directory to store the results in
+    setname: str
+        Name of the dataset the workflow belongs to
     """
 
     name: str = "AEWF EOS Workflow"
@@ -33,6 +35,7 @@ class BaseAEWFMaker(Maker):
     relax_maker: BaseAimsMaker | None = None
     store_directory: str | Path | None = None
     scaling_factors: list[float] | None = None
+    setname: str = None
 
     def __post_init__(self) -> None:
         """Set the default scaling factors."""
@@ -87,6 +90,7 @@ class BaseAEWFMaker(Maker):
             volume_scaling_list=self.scaling_factors,
             store_directory=store_directory,
             relax_outputs=relax_outputs,
+            setname=self.setname,
         )
 
         jobs.append(eos_static_calcs)

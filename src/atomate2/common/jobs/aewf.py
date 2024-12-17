@@ -29,6 +29,8 @@ def eos_check(
     jobs_outputs: dict[str, tuple[str, BaseTaskDocument]],
     relax_outputs: tuple[str, BaseTaskDocument],
     store_directory: str | Path | None = None,
+    setname: str = "ae-verifcation",
+    flow_uuid: str | None = None,
 ) -> AEWFDoc:
     """Postprocess AEWF EOS workflow.
 
@@ -40,13 +42,19 @@ def eos_check(
         The outputs for the relaxation job if done (uuid, job output)
     store_directory: str | Path | None
         The optional path to store the results in outside of the job_directories
+    setname: str
+        Name of the dataset the workflow belongs to
+    flow_uuid: str | None
+        UUID for the eos workflow
 
     Returns
     -------
     AEWFDoc
         The TaskDocument for this workflow
     """
-    task_doc = AEWFDoc.from_outputs(jobs_outputs, relax_outputs)
+    task_doc = AEWFDoc.from_outputs(
+        jobs_outputs, relax_outputs, setname=setname, flow_uuid=flow_uuid
+    )
 
     if store_directory is not None:
         eos_results_path = Path(store_directory) / "eos_results"
@@ -78,6 +86,7 @@ def setup_eos_calculations(
     volume_scaling_list: list[float] | None = None,
     store_directory: str | Path | None = None,
     relax_outputs: tuple[str, BaseTaskDocument] | None = None,
+    setname: str = "ae-verification",
 ) -> Response:
     """Set up all EOS calculations.
 
@@ -93,6 +102,8 @@ def setup_eos_calculations(
         The optional path to store the results in outside of the job_directories
     relax_outputs: tuple[str, BaseTaskDocument] | None
         The outputs for the relaxation job if done (uuid, job output)
+    setname: str
+        Name of the dataset the workflow belongs to
 
     Returns
     -------
@@ -126,8 +137,15 @@ def setup_eos_calculations(
         jobs.append(job)
         outputs[float2bson(eta)] = (job.uuid, job.output)
 
-    eos_check_job = eos_check(outputs, relax_outputs, store_directory)
-    jobs.append(eos_check_job)
-    flow = Flow(jobs, output=eos_check_job.output)
+    eos_calc_flow = Flow(jobs, output=outputs)
+    eos_check_job = eos_check(
+        eos_calc_flow.output,
+        relax_outputs,
+        store_directory,
+        setname=setname,
+        flow_uuid=eos_calc_flow.uuid,
+    )
 
-    return Response(replace=flow)
+    return Response(
+        replace=Flow([eos_calc_flow, eos_check_job], output=eos_check_job.output)
+    )

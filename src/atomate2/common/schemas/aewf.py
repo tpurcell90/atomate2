@@ -5,6 +5,7 @@ from typing import Any, Optional, Self
 
 import matplotlib.pyplot as plt
 import numpy as np
+from emmet.core.math import Matrix3D
 from emmet.core.structure import StructureMetadata
 from emmet.core.task import BaseTaskDocument
 from pydantic import BaseModel, Field
@@ -167,12 +168,18 @@ class AEWFDoc(StructureMetadata):
 
     Parameters
     ----------
+    setname: str
+        Name of the dataset the workflow belongs to
+    flow_uuid: str | None
+        UUID for the workflow
     structure: Structure
         The structure the workflow ran on
     energies: list[float]
         List of all free energies calculated
     volumes: list[float]
         List of all volumes for the structures
+    stresses: list[Matrix3D | None]
+        The stress for all structures
     scaling_factors: list[float]
         The scaling factors for the volume and the base volumes
     bm_fit_params: dict[str, float]
@@ -190,6 +197,12 @@ class AEWFDoc(StructureMetadata):
         The job running directories
     """
 
+    setname: str = Field(
+        None, description="Name of the dataset the workflow belongs to"
+    )
+
+    flow_uuid: str | None = Field(None, description="UUID for the workflow")
+
     structure: Structure = Field(None, description="Structure of the calculation")
 
     energies: list[float] = Field(
@@ -198,6 +211,10 @@ class AEWFDoc(StructureMetadata):
 
     volumes: list[float] = Field(
         None, description="Total free energies for all structures"
+    )
+
+    stresses: list[Matrix3D | None] = Field(
+        None, description="The stress for all structures"
     )
 
     scaling_factors: list[float] = Field(
@@ -221,6 +238,8 @@ class AEWFDoc(StructureMetadata):
         cls,
         eos_outputs: dict[str, tuple[str, BaseTaskDocument]],
         relax_outputs: Optional[tuple[str, BaseTaskDocument]] = None,
+        setname: str = "ae-verifcation",
+        flow_uuid: str | None = None,
     ) -> Self:
         """Get the schema from relaxation and eos outputs.
 
@@ -230,6 +249,10 @@ class AEWFDoc(StructureMetadata):
             uuids and outputs for the equation of state jobs (scaling_factor, output)
         relax_ouputs: Optional[tuple[str, BaseTaskDocument]]
             uuid and output for the relaxation job
+        setname: str
+            Name of the dataset the workflow belongs to
+        flow_uuid: str | None
+            UUID for the workflow
 
         Returns
         -------
@@ -238,6 +261,7 @@ class AEWFDoc(StructureMetadata):
         """
         volumes = []
         energies = []
+        stresses = []
         scaling_factors = []
         structure = None
 
@@ -261,6 +285,7 @@ class AEWFDoc(StructureMetadata):
             if energy is not None:
                 volumes.append(task_doc.output.structure.volume)
                 energies.append(energy)
+                stresses.append(task_doc.output.stress)
 
                 scaling_factors.append(bson2float(eta))
 
@@ -293,13 +318,16 @@ class AEWFDoc(StructureMetadata):
         )
 
         return cls(
+            setname=setname,
             structure=structure,
             energies=energies,
             volumes=volumes,
+            stresses=stresses,
             scaling_factors=scaling_factors,
             bm_fit_params=bm_fit_dct,
             job_uuids=job_uuids,
             job_dirs=job_dirs,
+            flow_uuid=flow_uuid,
         )
 
     @property
@@ -344,6 +372,11 @@ class AEWFDoc(StructureMetadata):
         return self.bulk_modulus_gpa / 160.21766208
 
     @property
+    def num_atoms_in_sim_cell(self) -> int:
+        """Return the number of atoms in the simulation cell."""
+        return self.structure.num_sites
+
+    @property
     def aewf_json_dict(self) -> dict[str, Any]:
         """The json file for the AEWF plots."""
         bm_fit_data = {
@@ -354,15 +387,31 @@ class AEWFDoc(StructureMetadata):
             "residuals": self.residuals,
         }
         eos_data = [np.column_stack((self.volumes, self.energies)).tolist()]
+        stress_data = [
+            [vol, stress]
+            for vol, stress in zip(self.volumes, self.stresses, strict=False)
+        ]
 
-        uuid_mapping = {}
+        uuid_mapping: dict[str, str | list[str] | None] = {
+            "eos_workflow": self.flow_uuid,
+            "structure": None,
+        }
 
         if self.job_uuids is not None:
-            uuid_mapping["eos_workflow"] = self.job_uuids.eos_workflow_uuids
+            uuid_mapping["eos_jobs_ids"] = self.job_uuids.eos_workflow_uuids
+            if self.job_uuids.optimization_run_uuid is not None:
+                uuid_mapping["relax_job_id"] = self.job_uuids.optimization_run_uuid
 
         return {
             "bm_fit_data": bm_fit_data,
+            "completely_off": [],
             "eos_data": eos_data,
+            "failed_wfs": [],
+            "missing_outputs": [],
+            "num_atoms_in_sim_cell": self.num_atoms_in_sim_cell,
+            "script_version": "0.0.3",  # TARP Based on this
+            "set_name": self.setname,
+            "stress_data": stress_data,
             "uuid_mapping": uuid_mapping,
         }
 
