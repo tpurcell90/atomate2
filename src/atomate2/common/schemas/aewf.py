@@ -273,7 +273,7 @@ class AEWFDoc(StructureMetadata):
                     category=Warning,
                 )
 
-        bm_fit_params = bm(volumes, energies)
+        bm_fit_params = bm(np.array(volumes), np.array(energies))
 
         bm_fit_dct = {
             "min_volume": bm_fit_params[0],
@@ -387,8 +387,11 @@ class AEWFDoc(StructureMetadata):
         ax.tick_params(direction="in", which="both", right=True, top=True)
 
         volume_range = np.linspace(np.min(self.volumes), np.max(self.volumes), n_points)
+        bm_fit_params = self.bm_fit_params.copy()
+        bm_fit_params.pop("residuals")
+
         fit_energies = (
-            birch_murnaghan(volume_range, **self.bm_fit_params)
+            birch_murnaghan(volume_range, **bm_fit_params)
             - self.bm_fit_params["min_energy"]
         )
         fit_energies *= 1000.0 / self.structure.num_sites
