@@ -146,6 +146,8 @@ class OutputDoc(BaseModel):
         The trajectory of output structures
     energy: float
         The final total DFT energy for the last calculation
+    free_energy: float
+        The final free DFT energy for the last calculation
     energy_per_atom: float
         The final DFT energy per atom for the last calculation
     bandgap: float
@@ -170,6 +172,9 @@ class OutputDoc(BaseModel):
     )
     energy: float = Field(
         None, description="The final total DFT energy for the last calculation"
+    )
+    free_energy: float = Field(
+        None, description="The final free DFT energy for the last calculation"
     )
     energy_per_atom: float = Field(
         None, description="The final DFT energy per atom for the last calculation"
@@ -206,6 +211,7 @@ class OutputDoc(BaseModel):
         return cls(
             structure=calc_doc.output.structure,
             energy=calc_doc.output.energy,
+            free_energy=calc_doc.output.free_energy,
             energy_per_atom=calc_doc.output.energy_per_atom,
             bandgap=calc_doc.output.bandgap,
             cbm=calc_doc.output.cbm,

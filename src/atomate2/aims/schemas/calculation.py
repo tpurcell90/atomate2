@@ -7,10 +7,11 @@ import os
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 from ase.spectrum.band_structure import BandStructure
+from emmet.core.math import Matrix3D, Vector3D
 from jobflow.utils import ValueEnum
 from pydantic import BaseModel, Field
 from pymatgen.core import Molecule, Structure
@@ -20,9 +21,6 @@ from pymatgen.io.aims.inputs import AimsGeometryIn
 from pymatgen.io.aims.outputs import AimsOutput
 from pymatgen.io.common import VolumetricData
 from typing_extensions import Self
-
-if TYPE_CHECKING:
-    from emmet.core.math import Matrix3D, Vector3D
 
 STORE_VOLUMETRIC_DATA = ("total_density",)
 
@@ -60,6 +58,8 @@ class CalculationOutput(BaseModel):
     ----------
     energy: float
         The final total DFT energy for the calculation
+    free_energy: float
+        The final free DFT energy for the calculation
     energy_per_atom: float
         The final DFT energy per atom for the calculation
     structure: Structure or Molecule
@@ -88,6 +88,9 @@ class CalculationOutput(BaseModel):
 
     energy: float = Field(
         None, description="The final total DFT energy for the calculation"
+    )
+    free_energy: float = Field(
+        None, description="The final free DFT energy for the calculation"
     )
     energy_per_atom: float = Field(
         None, description="The final DFT energy per atom for the calculation"
@@ -177,6 +180,7 @@ class CalculationOutput(BaseModel):
         return cls(
             structure=structure,
             energy=output.final_energy,
+            free_energy=output.get_results_for_image(-1).properties["free_energy"],
             energy_per_atom=output.final_energy / len(structure.species),
             **electronic_output,
             atomic_steps=output.structures,
