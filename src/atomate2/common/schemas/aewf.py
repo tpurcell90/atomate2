@@ -236,7 +236,8 @@ class AEWFDoc(StructureMetadata):
     @classmethod
     def from_outputs(
         cls,
-        eos_outputs: dict[str, tuple[str, BaseTaskDocument]],
+        eos_outputs: dict[str, tuple[str, BaseTaskDocument]]
+        | tuple[str, BaseTaskDocument, list[float]],
         relax_outputs: Optional[tuple[str, BaseTaskDocument]] = None,
         setname: str = "ae-verifcation",
         flow_uuid: str | None = None,
@@ -259,10 +260,10 @@ class AEWFDoc(StructureMetadata):
         cls
             The TaskDoc for these outputs
         """
-        volumes = []
-        energies = []
-        stresses = []
-        scaling_factors = []
+        volumes: list[float] = []
+        energies: list[float] = []
+        stresses: list[Matrix3D | None] = []
+        scaling_factors: list[float] = []
         structure = None
 
         relax_uuid = None
@@ -276,27 +277,51 @@ class AEWFDoc(StructureMetadata):
             relax_dir = relax_outputs[1].dir_name
             relax_uuid = relax_outputs[0]
 
-        for eta, eos_out in eos_outputs.items():
-            task_doc = eos_out[1]
-            energy = task_doc.output.free_energy
-            if bson2float(eta) == 1.0:
-                structure = task_doc.output.structure
+        if isinstance(eos_outputs, dict):
+            for eta, eos_out in eos_outputs.items():
+                task_doc = eos_out[1]
+                energy = task_doc.output.free_energy
+                if bson2float(eta) == 1.0:
+                    structure = task_doc.output.structure
 
-            if energy is not None:
-                volumes.append(task_doc.output.structure.volume)
-                energies.append(energy)
-                stresses.append(task_doc.output.stress)
+                if energy is not None:
+                    volumes.append(task_doc.output.structure.volume)
+                    energies.append(energy)
+                    stresses.append(task_doc.output.stress)
 
-                scaling_factors.append(bson2float(eta))
+                    scaling_factors.append(bson2float(eta))
 
-                eos_jobdirs.append(task_doc.dir_name)
-                eos_uuids.append(eos_out[0])
-            else:
-                warnings.warn(
-                    f"Scaling factor {eta} calculation failed (no energy).\n",
-                    stacklevel=1,
-                    category=Warning,
-                )
+                    eos_jobdirs.append(task_doc.dir_name)
+                    eos_uuids.append(eos_out[0])
+                else:
+                    warnings.warn(
+                        f"Scaling factor {eta} calculation failed (no energy).\n",
+                        stacklevel=1,
+                        category=Warning,
+                    )
+        else:
+            task_doc = eos_outputs[1]
+            eos_jobdirs.append(task_doc.dir_name)
+            eos_uuids.append(eos_outputs[0])
+            for index, eta_scale in enumerate(eos_outputs[2]):
+                if eta_scale == 1.0:
+                    structure = task_doc.output.trajectory[index]
+                energy = task_doc.output.trajectory[index].properties.get("free_energy")
+                if energy is not None:
+                    volumes.append(task_doc.output.trajectory[index].volume)
+                    energies.append(energy)
+                    stresses.append(
+                        task_doc.output.trajectory[index].site_properties.get(
+                            "stresses"
+                        )
+                    )
+                    scaling_factors.append(eta_scale)
+                else:
+                    warnings.warn(
+                        f"Scaling factor {eta_scale} calculation failed (no energy).\n",
+                        stacklevel=1,
+                        category=Warning,
+                    )
 
         bm_fit_params = bm(np.array(volumes), np.array(energies))
 

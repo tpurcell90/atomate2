@@ -26,7 +26,8 @@ def float2bson(eta: float) -> str:
 
 @job
 def eos_check(
-    jobs_outputs: dict[str, tuple[str, BaseTaskDocument]],
+    jobs_outputs: dict[str, tuple[str, BaseTaskDocument]]
+    | tuple[str, BaseTaskDocument, list[float]],
     relax_outputs: tuple[str, BaseTaskDocument],
     store_directory: str | Path | None = None,
     setname: str = "ae-verifcation",
@@ -66,7 +67,7 @@ def eos_check(
         with open(f"{eos_results_path}/eos.json", "w") as eos_sum:
             json.dump(task_doc.aewf_json_dict, eos_sum, indent=2)
 
-        if task_doc.job_dirs is not None:
+        if task_doc.job_dirs is not None and isinstance(jobs_outputs, dict):
             for eta, job_dir in zip(
                 task_doc.scaling_factors, task_doc.job_dirs.eos_jobdirs, strict=False
             ):
@@ -75,6 +76,12 @@ def eos_check(
                     f"{store_directory}/scaling_{eta:.03f}/",
                     dirs_exist_ok=True,
                 )
+        elif task_doc.job_dirs is not None:
+            shutil.copytree(
+                task_doc.job_dirs.eos_jobdirs[0].split(":")[-1].strip(),
+                f"{store_directory}/scaling_calcs/",
+                dirs_exist_ok=True,
+            )
 
     return task_doc
 
@@ -87,6 +94,7 @@ def setup_eos_calculations(
     store_directory: str | Path | None = None,
     relax_outputs: tuple[str, BaseTaskDocument] | None = None,
     setname: str = "ae-verification",
+    socket: bool = False,
 ) -> Response:
     """Set up all EOS calculations.
 
@@ -104,6 +112,8 @@ def setup_eos_calculations(
         The outputs for the relaxation job if done (uuid, job output)
     setname: str
         Name of the dataset the workflow belongs to
+    socket: bool
+        If True run using a socket
 
     Returns
     -------
@@ -124,20 +134,32 @@ def setup_eos_calculations(
             )
 
     jobs = []
-    outputs = {}
 
     volume0 = structure.volume
 
-    for eta in volume_scaling_list:
-        scaled_structure = structure.copy()
-        scaled_structure = scaled_structure.scale_lattice(volume0 * eta)
-
-        job = static_maker.make(structure=scaled_structure)
-        job.name += f" : scaling {eta:.02f}"
+    if socket:
+        calc_scturctures = []
+        for eta in sorted(volume_scaling_list):
+            scaled_structure = structure.copy()
+            scaled_structure = scaled_structure.scale_lattice(volume0 * eta)
+            calc_scturctures.append(scaled_structure)
+        job = static_maker.make(structure=calc_scturctures)
+        job.name += " : calc_all_structs"
         jobs.append(job)
-        outputs[float2bson(eta)] = (job.uuid, job.output)
+        outputs_sock = (job.uuid, job.output, sorted(volume_scaling_list))
+        eos_calc_flow = Flow(jobs, output=outputs_sock)
+    else:
+        outputs = {}
+        for eta in volume_scaling_list:
+            scaled_structure = structure.copy()
+            scaled_structure = scaled_structure.scale_lattice(volume0 * eta)
 
-    eos_calc_flow = Flow(jobs, output=outputs)
+            job = static_maker.make(structure=scaled_structure)
+            job.name += f" : scaling {eta:.02f}"
+            jobs.append(job)
+            outputs[str(float2bson(eta))] = (job.uuid, job.output)
+        eos_calc_flow = Flow(jobs, output=outputs)
+
     eos_check_job = eos_check(
         eos_calc_flow.output,
         relax_outputs,

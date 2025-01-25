@@ -47,6 +47,7 @@ class BaseAEWFMaker(Maker):
         structure: Structure,
         prev_dir: str | Path | None = None,
         subdirec: str | Path | None = None,
+        socket: bool = False,
     ) -> Flow:
         """Create an AEWF EOS calculation.
 
@@ -58,6 +59,8 @@ class BaseAEWFMaker(Maker):
             The previous calculation directory
         subdirec: str | Path | None
             The subdirectory to store the results of the calculation
+        socket: bool
+            If True use socket calculators
 
         Returns
         -------
@@ -91,6 +94,7 @@ class BaseAEWFMaker(Maker):
             store_directory=store_directory,
             relax_outputs=relax_outputs,
             setname=self.setname,
+            socket=socket,
         )
 
         jobs.append(eos_static_calcs)
