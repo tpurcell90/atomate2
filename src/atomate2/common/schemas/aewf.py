@@ -1,7 +1,7 @@
 """Create a scehema doc for AEWF collaboration."""
 
 import warnings
-from typing import Any, Optional, Self
+from typing import Any, Self
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -131,10 +131,8 @@ class AEWFUUIDs(BaseModel):
         UUIDs for all of the EOS workflow calculaions
     """
 
-    optimization_run_uuid: Optional[str] = Field(
-        None, description="optimization run uuid"
-    )
-    eos_workflow_uuids: Optional[list[str]] = Field(
+    optimization_run_uuid: str | None = Field(None, description="optimization run uuid")
+    eos_workflow_uuids: list[str] | None = Field(
         None, description="The uuids of the changed volume jobs."
     )
 
@@ -152,13 +150,13 @@ class AEWFDirs(BaseModel):
         Job directories for the EOS generation TaskDoc run
     """
 
-    eos_jobdirs: Optional[list[Optional[str]]] = Field(
+    eos_jobdirs: list[str | None] | None = Field(
         None, description="The directories where the displacement jobs were run."
     )
-    optimization_run_job_dir: Optional[str] = Field(
+    optimization_run_job_dir: str | None = Field(
         None, description="Directory where optimization run was performed."
     )
-    taskdoc_run_job_dir: Optional[str] = Field(
+    taskdoc_run_job_dir: str | None = Field(
         None, description="Directory where task doc was generated."
     )
 
@@ -225,20 +223,17 @@ class AEWFDoc(StructureMetadata):
         None, description="Birch Murnaghan EOS fit parameters"
     )
 
-    job_uuids: Optional[AEWFUUIDs] = Field(
-        None, description="Job UUIDs for the workflow"
-    )
+    job_uuids: AEWFUUIDs | None = Field(None, description="Job UUIDs for the workflow")
 
-    job_dirs: Optional[AEWFDirs] = Field(
+    job_dirs: AEWFDirs | None = Field(
         None, description="Job directories for the workflow"
     )
 
     @classmethod
     def from_outputs(
         cls,
-        eos_outputs: dict[str, tuple[str, BaseTaskDocument]]
-        | tuple[str, BaseTaskDocument, list[float]],
-        relax_outputs: Optional[tuple[str, BaseTaskDocument]] = None,
+        eos_outputs: dict[str, tuple[str, BaseTaskDocument]],
+        relax_outputs: tuple[str, BaseTaskDocument] | None = None,
         setname: str = "ae-verifcation",
         flow_uuid: str | None = None,
     ) -> Self:
@@ -440,7 +435,7 @@ class AEWFDoc(StructureMetadata):
             "uuid_mapping": uuid_mapping,
         }
 
-    def plot_eos(
+    def plot(
         self, figsize: tuple[float, float] | list[float] = (3, 3), n_points: int = 301
     ) -> plt.Figure:
         """Generate a plot of the equation of state (fit and data points).
@@ -481,6 +476,225 @@ class AEWFDoc(StructureMetadata):
         ax.plot(volume_range, fit_energies, "k", zorder=-1)
 
         ax.set_xlabel("Volume [Å³]")
+        ax.set_ylabel("Energy [meV / atom]")
+
+        ax.grid = True
+        fig.tight_layout()
+
+        return fig
+
+
+class AEWFParamDoc(StructureMetadata):
+    """Equation of State Data for AEWF collaboration.
+
+    Parameters
+    ----------
+    setname: str
+        Name of the dataset the workflow belongs to
+    flow_uuid: str | None
+        UUID for the workflow
+    structure: Structure
+        The structure the workflow ran on
+    energies: list[float]
+        List of all free energies calculated
+    input_key: str
+        The key for the parameter that is changing
+    x_axis_vals: list[float]
+        The list of x-axis values that were tested.
+    stresses: list[Matrix3D | None]
+        The stress for all structures
+    job_uuids: Optional[AEWFUUIDs]
+        The job UUIDs
+    job_dirs: Optional[AEWFDirs]
+        The job running directories
+    """
+
+    setname: str = Field(
+        None, description="Name of the dataset the workflow belongs to"
+    )
+    data_json_key: str = Field(None, description="prefix for data json keyword")
+    flow_uuid: str | None = Field(None, description="UUID for the workflow")
+
+    structure: Structure = Field(None, description="Structure of the calculation")
+
+    energies: list[float] = Field(
+        None, description="Total free energies for all structures"
+    )
+
+    fermi_energies: list[float | None] = Field(
+        None, description="The Fermi energies for all structures"
+    )
+
+    input_key: str = Field(
+        None, description="The key for the parameter that is changing"
+    )
+
+    x_axis_vals: list[float] = Field(
+        None, description="The list of x-axis values that were tested."
+    )
+
+    job_uuids: AEWFUUIDs | None = Field(None, description="Job UUIDs for the workflow")
+
+    job_dirs: AEWFDirs | None = Field(
+        None, description="Job directories for the workflow"
+    )
+
+    @classmethod
+    def from_outputs(
+        cls,
+        input_key: str,
+        eos_outputs: dict[str, tuple[str, BaseTaskDocument]],
+        relax_outputs: tuple[str, BaseTaskDocument] | None = None,
+        setname: str = "ae-verifcation",
+        flow_uuid: str | None = None,
+    ) -> Self:
+        """Get the schema from relaxation and eos outputs.
+
+        Parameters
+        ----------
+        input_key: str
+            The key for the parameter that changed in the inputs
+        eos_outputs: dict[str, tuple[str, BaseTaskDocument]]
+            uuids and outputs for the equation of state jobs (scaling_factor, output)
+        relax_ouputs: Optional[tuple[str, BaseTaskDocument]]
+            uuid and output for the relaxation job
+        setname: str
+            Name of the dataset the workflow belongs to
+        flow_uuid: str | None
+            UUID for the workflow
+
+        Returns
+        -------
+        cls
+            The TaskDoc for these outputs
+        """
+        x_axis_vals = []
+        energies = []
+        fermi_energies = []
+        structure = None
+
+        relax_uuid = None
+        eos_uuids = []
+
+        relax_dir = None
+        eos_jobdirs = []
+        if input_key == "fixed_spin_moment":
+            data_json_key = "total_magnetization_energy"
+        else:
+            data_json_key = f"{input_key}_energy"
+
+        if relax_outputs:
+            structure = relax_outputs[1].output.structure
+            relax_dir = relax_outputs[1].dir_name
+            relax_uuid = relax_outputs[0]
+
+        for eta, eos_out in eos_outputs.items():
+            task_doc = eos_out[1]
+            energy = task_doc.output.free_energy
+            fermi_energy = task_doc.output.fermi_energy
+
+            if energy is not None:
+                x_axis_vals.append(task_doc.input.parameters[input_key])
+                energies.append(energy)
+                fermi_energies.append(fermi_energy)
+
+                eos_jobdirs.append(task_doc.dir_name)
+                eos_uuids.append(eos_out[0])
+            else:
+                warnings.warn(
+                    f"Scaling factor {eta} calculation failed (no energy).\n",
+                    stacklevel=1,
+                    category=Warning,
+                )
+
+        if structure is None:
+            structure = eos_out[1].output.structure.copy()
+
+        job_dirs = AEWFDirs(eos_jobdirs=eos_jobdirs, optimization_run_job_dir=relax_dir)
+        job_uuids = AEWFUUIDs(
+            optimization_run_uuid=relax_uuid, eos_workflow_uuids=eos_uuids
+        )
+
+        return cls(
+            data_json_key=data_json_key,
+            setname=setname,
+            structure=structure,
+            energies=energies,
+            fermi_energies=fermi_energies,
+            x_axis_vals=x_axis_vals,
+            job_uuids=job_uuids,
+            job_dirs=job_dirs,
+            flow_uuid=flow_uuid,
+        )
+
+    @property
+    def num_atoms_in_sim_cell(self) -> int:
+        """Return the number of atoms in the simulation cell."""
+        return self.structure.num_sites
+
+    @property
+    def aewf_json_dict(self) -> dict[str, Any]:
+        """The json file for the AEWF plots."""
+        data = [np.column_stack((self.x_axis_vals, self.energies)).tolist()]
+        fermi_energies = [
+            np.column_stack((self.x_axis_vals, self.fermi_energies)).tolist()
+        ]
+
+        uuid_mapping: dict[str, str | list[str] | None] = {
+            "workflow": self.flow_uuid,
+            "structure": None,
+        }
+
+        if self.job_uuids is not None:
+            uuid_mapping["jobs_ids"] = self.job_uuids.eos_workflow_uuids
+            if self.job_uuids.optimization_run_uuid is not None:
+                uuid_mapping["relax_job_id"] = self.job_uuids.optimization_run_uuid
+
+        return {
+            "script_version": "0.0.3",  # TARP Based on this
+            "set_name": self.setname,
+            f"{self.data_json_key}_data": data,
+            "fermi_energies": fermi_energies,
+            "uuid_mapping": uuid_mapping,
+        }
+
+    def plot(
+        self, figsize: tuple[float, float] | list[float] = (3, 3), n_points: int = 301
+    ) -> plt.Figure:
+        """Generate a plot of the equation of state (fit and data points).
+
+        Parameters
+        ----------
+        figsize: tuple[float, float] | list[float]
+            The size of the figure
+        n_points: int
+            The number of points for the energy fig
+
+        Returns
+        -------
+        plt.Figure
+            the Figure of the EOS plot
+        """
+        fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
+        ax.tick_params(direction="in", which="both", right=True, top=True)
+
+        poly_coeff = np.polyfit(self.x_axis_vals, self.energies, 2)
+        x_range = np.linspace(
+            np.min(self.x_axis_vals), np.max(self.x_axis_vals), n_points
+        )
+
+        fit_energies = (
+            x_range * poly_coeff[1] + x_range**2.0 * poly_coeff[0] + poly_coeff[2]
+        )
+        fit_energies *= 1000.0 / self.structure.num_sites
+
+        plt_energies = (np.array(self.energies)) * 1000.0 / self.structure.num_sites
+        plt_x_vals = np.array(self.x_axis_vals)
+
+        ax.plot(plt_x_vals, plt_energies, "o")
+        ax.plot(x_range, fit_energies, "k", zorder=-1)
+
+        ax.set_xlabel(self.data_json_key)
         ax.set_ylabel("Energy [meV / atom]")
 
         ax.grid = True
