@@ -176,6 +176,9 @@ class OutputDoc(BaseModel):
     free_energy: float = Field(
         None, description="The final free DFT energy for the last calculation"
     )
+    fermi_energy: float | None = Field(
+        None, description="The fermi energy for the last calculation"
+    )
     energy_per_atom: float = Field(
         None, description="The final DFT energy per atom for the last calculation"
     )
@@ -212,6 +215,7 @@ class OutputDoc(BaseModel):
             structure=calc_doc.output.structure,
             energy=calc_doc.output.energy,
             free_energy=calc_doc.output.free_energy,
+            fermi_energy=calc_doc.output.fermi_energy,
             energy_per_atom=calc_doc.output.energy_per_atom,
             bandgap=calc_doc.output.bandgap,
             cbm=calc_doc.output.cbm,

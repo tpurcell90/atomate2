@@ -26,6 +26,8 @@ class BaseAEWFMaker(Maker):
         Relaxation maker for finding a good central volume
     store_directory: str | Path |None
         Directory to store the results in
+    x_axis_values: list[float]
+        List of values to scale the volumes by
     setname: str
         Name of the dataset the workflow belongs to
     """
@@ -34,19 +36,26 @@ class BaseAEWFMaker(Maker):
     static_maker: BaseAimsMaker = None
     relax_maker: BaseAimsMaker | None = None
     store_directory: str | Path | None = None
-    scaling_factors: list[float] | None = None
+    input_key: str = "volume_scaling"
+    x_axis_values: list[float] = None
     setname: str = None
 
     def __post_init__(self) -> None:
         """Set the default scaling factors."""
-        if self.scaling_factors is None:
-            self.scaling_factors = [0.94, 0.96, 0.98, 1.00, 1.02, 1.04, 1.06]
+        if self.x_axis_values is None and self.input_key == "volume_scaling":
+            self.x_axis_values = [0.94, 0.96, 0.98, 1.00, 1.02, 1.04, 1.06]
+        elif self.x_axis_values is None:
+            raise ValueError(
+                f"No default for x_axis_values "
+                f"is known from input parameter {self.input_key}."
+            )
 
     def make(
         self,
         structure: Structure,
         prev_dir: str | Path | None = None,
         subdirec: str | Path | None = None,
+        socket: bool = False,
     ) -> Flow:
         """Create an AEWF EOS calculation.
 
@@ -58,6 +67,8 @@ class BaseAEWFMaker(Maker):
             The previous calculation directory
         subdirec: str | Path | None
             The subdirectory to store the results of the calculation
+        socket: bool
+            If True use socket calculators
 
         Returns
         -------
@@ -76,7 +87,7 @@ class BaseAEWFMaker(Maker):
 
         jobs.append(
             self.update_kgrid(
-                structure_eos, self.static_maker, np.min(self.scaling_factors)
+                structure_eos, self.static_maker, np.min(self.x_axis_values)
             )
         )
         static_maker = jobs[-1].output
@@ -87,10 +98,12 @@ class BaseAEWFMaker(Maker):
         eos_static_calcs = setup_eos_calculations(
             structure_eos,
             static_maker,
-            volume_scaling_list=self.scaling_factors,
+            input_key=self.input_key,
+            x_axis_values=self.x_axis_values,
             store_directory=store_directory,
             relax_outputs=relax_outputs,
             setname=self.setname,
+            socket=socket,
         )
 
         jobs.append(eos_static_calcs)

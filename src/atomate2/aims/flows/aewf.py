@@ -80,8 +80,10 @@ class AEWFMaker(BaseAEWFMaker):
         lattice = structure.lattice.scale(min_scaling).reciprocal_lattice
 
         k_grid = [
-            int(np.ceil(param / 0.12)) * 2 + 1 for param in lattice.parameters[:3]
+            int(np.ceil(np.round(param / 0.06, 5))) for param in lattice.parameters[:3]
         ]
+
         maker.input_set_generator.user_params["k_grid"] = k_grid
+        maker.input_set_generator.user_params["k_offset"] = [0.0, 0.0, 0.0]
 
         return maker

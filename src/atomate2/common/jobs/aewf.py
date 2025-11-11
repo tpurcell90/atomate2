@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from jobflow import Flow, Response, job
 
-from atomate2.common.schemas.aewf import AEWFDoc
+from atomate2.common.schemas.aewf import AEWFDoc, AEWFParamDoc
 
 if TYPE_CHECKING:
     from emmet.core.task import BaseTaskDocument
@@ -19,25 +19,28 @@ if TYPE_CHECKING:
 
 
 # Helper functions for BSON-safe float conversion
-def float2bson(eta: float) -> str:
+def float2bson(val: float) -> str:
     """Convert a float to a BSON-safe entry."""
-    return str(eta).replace(".", "_")
+    return str(val).replace(".", "_")
 
 
 @job
 def eos_check(
+    input_key: str,
     jobs_outputs: dict[str, tuple[str, BaseTaskDocument]],
     relax_outputs: tuple[str, BaseTaskDocument],
     store_directory: str | Path | None = None,
     setname: str = "ae-verifcation",
     flow_uuid: str | None = None,
-) -> AEWFDoc:
+) -> AEWFDoc | AEWFParamDoc:
     """Postprocess AEWF EOS workflow.
 
     Parameters
     ----------
+    input_key: str
+        The input_key for the parameter that is changing
     job_outputs: dict[str, tuple[str, BaseTaskDocument]]
-        The outputs for each of the EOS jobs (key: eta, value:(uuid, job output))
+        The outputs for each of the EOS jobs (key: val, value:(uuid, job output))
     relax_outputs: tuple[str, BaseTaskDocument] | None
         The outputs for the relaxation job if done (uuid, job output)
     store_directory: str | Path | None
@@ -49,32 +52,43 @@ def eos_check(
 
     Returns
     -------
-    AEWFDoc
+    AEWFDoc | AEWFParamDoc
         The TaskDocument for this workflow
     """
-    task_doc = AEWFDoc.from_outputs(
-        jobs_outputs, relax_outputs, setname=setname, flow_uuid=flow_uuid
-    )
+    if input_key == "volume_scaling":
+        task_doc = AEWFDoc.from_outputs(
+            jobs_outputs, relax_outputs, setname=setname, flow_uuid=flow_uuid
+        )
+    else:
+        task_doc = AEWFParamDoc.from_outputs(
+            input_key, jobs_outputs, relax_outputs, setname=setname, flow_uuid=flow_uuid
+        )
 
     if store_directory is not None:
-        eos_results_path = Path(store_directory) / "eos_results"
-        eos_results_path.mkdir(exist_ok=True)
+        results_path = Path(store_directory) / "results"
+        results_path.mkdir(exist_ok=True)
 
-        fig = task_doc.plot_eos()
-        fig.savefig(f"{eos_results_path}/eos.pdf")
+        fig = task_doc.plot()
+        fig.savefig(f"{results_path}/verification.pdf")
 
-        with open(f"{eos_results_path}/eos.json", "w") as eos_sum:
+        with open(f"{results_path}/data.json", "w") as eos_sum:
             json.dump(task_doc.aewf_json_dict, eos_sum, indent=2)
 
-        if task_doc.job_dirs is not None:
-            for eta, job_dir in zip(
-                task_doc.scaling_factors, task_doc.job_dirs.eos_jobdirs, strict=False
+        if task_doc.job_dirs is not None and isinstance(jobs_outputs, dict):
+            for val, job_dir in zip(
+                task_doc.x_axis_vals, task_doc.job_dirs.eos_jobdirs, strict=False
             ):
                 shutil.copytree(
                     job_dir.split(":")[-1].strip(),
-                    f"{store_directory}/scaling_{eta:.03f}/",
+                    f"{store_directory}/x_val_{val:.03f}/",
                     dirs_exist_ok=True,
                 )
+        elif task_doc.job_dirs is not None:
+            shutil.copytree(
+                task_doc.job_dirs.eos_jobdirs[0].split(":")[-1].strip(),
+                f"{store_directory}/x_val_calcs/",
+                dirs_exist_ok=True,
+            )
 
     return task_doc
 
@@ -83,10 +97,12 @@ def eos_check(
 def setup_eos_calculations(
     structure: Structure,
     static_maker: BaseAimsMaker,
-    volume_scaling_list: list[float] | None = None,
+    input_key: str = "volume_scaling",
+    x_axis_values: list[float] | None = None,
     store_directory: str | Path | None = None,
     relax_outputs: tuple[str, BaseTaskDocument] | None = None,
     setname: str = "ae-verification",
+    socket: bool = False,
 ) -> Response:
     """Set up all EOS calculations.
 
@@ -96,22 +112,33 @@ def setup_eos_calculations(
         Base structure to perform the calculation on
     static_maker: BaseAimsMaker
         Maker used to calculate the energy for the volumes
-    volume_scaling_lisg: list[float] | None
-        The fractional values to scale the volumes by
+    input_key: str
+        The key used to describe the change in property for the x-axis
+    x_axis_values: list[float] | None
+        The fractional values to set the input key too
     store_directory: str | Path | None
         The optional path to store the results in outside of the job_directories
     relax_outputs: tuple[str, BaseTaskDocument] | None
         The outputs for the relaxation job if done (uuid, job output)
     setname: str
         Name of the dataset the workflow belongs to
+    socket: bool
+        If True run using a socket
 
     Returns
     -------
     Response
         The updated workflow with all of the single-point calculations added
     """
-    if volume_scaling_list is None:
-        volume_scaling_list = [0.94, 0.96, 0.98, 1.00, 1.02, 1.04, 1.06]
+    if x_axis_values is None and input_key == "volume_scaling":
+        x_axis_values = [0.94, 0.96, 0.98, 1.00, 1.02, 1.04, 1.06]
+    elif x_axis_values is None:
+        raise ValueError(
+            f"No default for x_axis_values is known from input parameter {input_key}."
+        )
+
+    if socket and input_key != "volume_scaling":
+        raise ValueError("Socket calculations are only available for volume_scaling")
 
     if store_directory is not None:
         store_directory = Path(store_directory).absolute()
@@ -124,28 +151,42 @@ def setup_eos_calculations(
             )
 
     jobs = []
-    outputs = {}
 
     volume0 = structure.volume
 
-    for eta in volume_scaling_list:
-        scaled_structure = structure.copy()
-        scaled_structure = scaled_structure.scale_lattice(volume0 * eta)
-
-        job = static_maker.make(structure=scaled_structure)
-        job.name += f" : scaling {eta:.02f}"
+    if socket:
+        calc_scturctures = []
+        for val in sorted(x_axis_values):
+            scaled_structure = structure.copy()
+            scaled_structure = scaled_structure.scale_lattice(volume0 * val)
+            calc_scturctures.append(scaled_structure)
+        job = static_maker.make(structure=calc_scturctures)
+        job.name += " : calc_all_structs"
         jobs.append(job)
-        outputs[float2bson(eta)] = (job.uuid, job.output)
+        outputs_sock = (job.uuid, job.output, sorted(x_axis_values))
+        eos_calc_flow = Flow(jobs, output=outputs_sock)
+    else:
+        outputs = {}
+        for val in x_axis_values:
+            job_struct = structure.copy()
+            if input_key == "volume_scaling":
+                job_struct = job_struct.scale_lattice(volume0 * val)
+            else:
+                static_maker.input_set_generator.user_params[input_key] = val
+            job = static_maker.make(structure=job_struct)
+            job.name += f" : scaling {val:.02f}"
+            jobs.append(job)
+            outputs[str(float2bson(val))] = (job.uuid, job.output)
+        eos_calc_flow = Flow(jobs, output=outputs)
 
-    eos_calc_flow = Flow(jobs, output=outputs)
     eos_check_job = eos_check(
+        input_key,
         eos_calc_flow.output,
         relax_outputs,
-        store_directory,
+        store_directory=store_directory,
         setname=setname,
         flow_uuid=eos_calc_flow.uuid,
     )
-
     return Response(
         replace=Flow([eos_calc_flow, eos_check_job], output=eos_check_job.output)
     )

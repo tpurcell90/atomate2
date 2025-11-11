@@ -67,6 +67,8 @@ class CalculationOutput(BaseModel):
         The final total DFT energy for the calculation
     free_energy: float
         The final free DFT energy for the calculation
+    fermi_energy: float
+        The final fermi energy for the calculation
     energy_per_atom: float
         The final DFT energy per atom for the calculation
     structure: Structure or Molecule
@@ -98,6 +100,9 @@ class CalculationOutput(BaseModel):
     )
     free_energy: float = Field(
         None, description="The final free DFT energy for the calculation"
+    )
+    fermi_energy: float | None = Field(
+        None, description="The final fermi DFT energy for the calculation"
     )
     energy_per_atom: float = Field(
         None, description="The final DFT energy per atom for the calculation"
@@ -187,7 +192,8 @@ class CalculationOutput(BaseModel):
         return cls(
             structure=structure,
             energy=output.final_energy,
-            free_energy=output.get_results_for_image(-1).properties["free_energy"],
+            free_energy=output.get_results_for_image(-1).properties["energy"],
+            fermi_energy=output.fermi_energy,
             energy_per_atom=output.final_energy / len(structure.species),
             **electronic_output,
             atomic_steps=output.structures,
