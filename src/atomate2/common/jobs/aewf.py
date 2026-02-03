@@ -32,6 +32,7 @@ def eos_check(
     store_directory: str | Path | None = None,
     setname: str = "ae-verifcation",
     flow_uuid: str | None = None,
+    add_den_mat: None | tuple[int, str] = None,
 ) -> AEWFDoc | AEWFParamDoc:
     """Postprocess AEWF EOS workflow.
 
@@ -48,7 +49,9 @@ def eos_check(
     setname: str
         Name of the dataset the workflow belongs to
     flow_uuid: str | None
-        UUID for the eos workflow
+        UUID for the eos workflow    
+    add_den_mat: tuple[int, str] | None
+        The subset of the density matrix to store
 
     Returns
     -------
@@ -57,11 +60,11 @@ def eos_check(
     """
     if input_key == "volume_scaling":
         task_doc = AEWFDoc.from_outputs(
-            jobs_outputs, relax_outputs, setname=setname, flow_uuid=flow_uuid
+            jobs_outputs, relax_outputs, setname=setname, flow_uuid=flow_uuid, add_den_mat=add_den_mat
         )
     else:
         task_doc = AEWFParamDoc.from_outputs(
-            input_key, jobs_outputs, relax_outputs, setname=setname, flow_uuid=flow_uuid
+            input_key, jobs_outputs, relax_outputs, setname=setname, flow_uuid=flow_uuid, add_den_mat=add_den_mat
         )
 
     if store_directory is not None:
@@ -83,6 +86,7 @@ def eos_check(
                     f"{store_directory}/x_val_{val:.03f}/",
                     dirs_exist_ok=True,
                 )
+
         elif task_doc.job_dirs is not None:
             shutil.copytree(
                 task_doc.job_dirs.eos_jobdirs[0].split(":")[-1].strip(),
@@ -103,6 +107,7 @@ def setup_eos_calculations(
     relax_outputs: tuple[str, BaseTaskDocument] | None = None,
     setname: str = "ae-verification",
     socket: bool = False,
+    add_den_mat: None | tuple[int, str] = None,
 ) -> Response:
     """Set up all EOS calculations.
 
@@ -124,6 +129,8 @@ def setup_eos_calculations(
         Name of the dataset the workflow belongs to
     socket: bool
         If True run using a socket
+    add_den_mat: tuple[int, str] | None
+        The subset of the density matrix to store
 
     Returns
     -------
@@ -186,7 +193,9 @@ def setup_eos_calculations(
         store_directory=store_directory,
         setname=setname,
         flow_uuid=eos_calc_flow.uuid,
+        add_den_mat=add_den_mat,
     )
     return Response(
         replace=Flow([eos_calc_flow, eos_check_job], output=eos_check_job.output)
     )
+

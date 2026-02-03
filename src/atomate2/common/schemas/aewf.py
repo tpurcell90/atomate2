@@ -2,6 +2,7 @@
 
 import warnings
 from typing import Any, Self
+from glob import glob
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,6 +11,70 @@ from emmet.core.structure import StructureMetadata
 from emmet.core.task import BaseTaskDocument
 from pydantic import BaseModel, Field
 from pymatgen.core.structure import Structure
+
+
+import pandas as pd
+import struct
+import scipy.sparse as sp
+
+import gzip
+
+def read_elsi_to_csc(filename):
+    mat = gzip.open(filename,"rb")
+    data = mat.read()
+    mat.close()
+    i8 = "l"
+    i4 = "i"
+
+    # Get header
+    start = 0
+    end = 128
+    header = struct.unpack(i8*16,data[start:end])
+
+    # Number of basis functions (matrix size)
+    n_basis = header[3]
+
+    # Total number of non-zero elements
+    nnz = header[5]
+
+    # Get column pointer
+    start = end
+    end = start+n_basis*8
+    col_ptr = struct.unpack(i8*n_basis,data[start:end])
+    col_ptr += (nnz+1,)
+    col_ptr = np.array(col_ptr)
+
+    # Get row index
+    start = end
+    end = start+nnz*4
+    row_idx = struct.unpack(i4*nnz,data[start:end])
+    row_idx = np.array(row_idx)
+
+    # Get non-zero value
+    start = end
+
+    if header[2] == 0:
+        # Real case
+        end = start+nnz*8
+        nnz_val = struct.unpack("d"*nnz,data[start:end])
+    else:
+        # Complex case
+        end = start+nnz*16
+        nnz_val = struct.unpack("d"*nnz*2,data[start:end])
+        nnz_val_real = np.array(nnz_val[0::2])
+        nnz_val_imag = np.array(nnz_val[1::2])
+        nnz_val = nnz_val_real + 1j*nnz_val_imag
+
+    nnz_val = np.array(nnz_val)
+
+    # Change convention
+    for i_val in range(nnz):
+        row_idx[i_val] -= 1
+
+    for i_col in range(n_basis+1):
+        col_ptr[i_col] -= 1
+
+    return sp.csc_matrix((nnz_val,row_idx,col_ptr),shape=(n_basis,n_basis))
 
 
 def bm(
@@ -178,7 +243,7 @@ class AEWFDoc(StructureMetadata):
         List of all volumes for the structures
     stresses: list[Matrix3D | None]
         The stress for all structures
-    scaling_factors: list[float]
+    x_axis_vals: list[float]
         The scaling factors for the volume and the base volumes
     bm_fit_params: dict[str, float]
         The bm fitting parameters
@@ -215,7 +280,7 @@ class AEWFDoc(StructureMetadata):
         None, description="The stress for all structures"
     )
 
-    scaling_factors: list[float] = Field(
+    x_axis_vals: list[float] = Field(
         None, description="Scaling Factors for central volumes"
     )
 
@@ -229,6 +294,8 @@ class AEWFDoc(StructureMetadata):
         None, description="Job directories for the workflow"
     )
 
+    density_matrix: dict[float, list[list[tuple[float, float]]]] | None = Field(None, description="The requested part of the density matrix")
+
     @classmethod
     def from_outputs(
         cls,
@@ -236,6 +303,7 @@ class AEWFDoc(StructureMetadata):
         relax_outputs: tuple[str, BaseTaskDocument] | None = None,
         setname: str = "ae-verifcation",
         flow_uuid: str | None = None,
+        add_den_mat: None | tuple[int, str] = None,
     ) -> Self:
         """Get the schema from relaxation and eos outputs.
 
@@ -258,7 +326,7 @@ class AEWFDoc(StructureMetadata):
         volumes: list[float] = []
         energies: list[float] = []
         stresses: list[Matrix3D | None] = []
-        scaling_factors: list[float] = []
+        x_axis_vals: list[float] = []
         structure = None
 
         relax_uuid = None
@@ -284,7 +352,7 @@ class AEWFDoc(StructureMetadata):
                     energies.append(energy)
                     stresses.append(task_doc.output.stress)
 
-                    scaling_factors.append(bson2float(eta))
+                    x_axis_vals.append(bson2float(eta))
 
                     eos_jobdirs.append(task_doc.dir_name)
                     eos_uuids.append(eos_out[0])
@@ -301,7 +369,8 @@ class AEWFDoc(StructureMetadata):
             for index, eta_scale in enumerate(eos_outputs[2]):
                 if eta_scale == 1.0:
                     structure = task_doc.output.trajectory[index]
-                energy = task_doc.output.trajectory[index].properties.get("free_energy")
+                energy = task_doc.output.trajectory[index].properties.get("energy")
+                print(task_doc.output.trajectory[index].properties)
                 if energy is not None:
                     volumes.append(task_doc.output.trajectory[index].volume)
                     energies.append(energy)
@@ -310,7 +379,7 @@ class AEWFDoc(StructureMetadata):
                             "stresses"
                         )
                     )
-                    scaling_factors.append(eta_scale)
+                    x_axis_vals.append(eta_scale)
                 else:
                     warnings.warn(
                         f"Scaling factor {eta_scale} calculation failed (no energy).\n",
@@ -337,17 +406,58 @@ class AEWFDoc(StructureMetadata):
             optimization_run_uuid=relax_uuid, eos_workflow_uuids=eos_uuids
         )
 
+        density_matrix = None
+        if False: # add_den_mat is not None:
+            density_matrix = {}
+            if not isinstance(eos_outputs, dict):
+                raise ValueError("Density matrix analysis is impossible as files were overwritten")
+
+            for xval, jobdir_host_path in zip(x_axis_vals, eos_jobdirs): 
+                jobdir = jobdir_host_path.split(":")[1]
+                dat = np.genfromtxt(f"{jobdir}/KS_eigenvectors.band_1.kpt_1.out")
+                fxn_typ = np.genfromtxt(f"{jobdir}/KS_eigenvectors.band_1.kpt_1.out", usecols=(2,), dtype=str)
+                l = np.genfromtxt(f"{jobdir}/KS_eigenvectors.band_1.kpt_1.out", usecols=(4,), dtype=str)
+                
+                atomic_fxns = np.where(fxn_typ == "atomic")[0]
+                f_fxns = np.where(l == add_den_mat[1])[0]
+                shell_fxns = np.where(dat[:, 3] == add_den_mat[0])[0]
+                
+                basis_fxns = np.intersect1d(np.intersect1d(atomic_fxns, f_fxns), shell_fxns)
+                eig_vec_mat = dat[basis_fxns, 6::2]
+                
+                columns = np.arange(1, eig_vec_mat.shape[1] + 1)
+                index = [f"{int(dat[ii, 0])}_{int(dat[ii, 1])}_{int(dat[ii, 5])}" for ii in basis_fxns]
+                
+                eig_vec_df = pd.DataFrame(data=eig_vec_mat, columns=columns, index=index)
+                eig_vec_df.to_csv(f"{jobdir}/eigenvec_subshell.csv")
+                
+                den_mat = np.zeros((len(basis_fxns), len(basis_fxns)), dtype=np.complex128)
+                xx, yy = np.meshgrid(basis_fxns, basis_fxns)
+     
+                eigenstate_info = np.genfromtxt(f"{jobdir}/eigenstate_info.out")
+     
+                for file in glob(f"{jobdir}/D_spin_01_kpt*"):
+                    k_ind = int(file.split("kpt_")[1].split(".csc")[0])
+                    den_mat += read_elsi_to_csc(file).toarray()[xx, yy]
+     
+                    den_df = pd.DataFrame(index=basis_fxns, columns=basis_fxns, data=den_mat)
+                    den_df.to_csv(f"{jobdir}/density_matrix_states.csv")
+                den_mat_real = np.real(den_mat)
+                den_mat_imag = np.imag(den_mat)
+                density_matrix[xval] = [[(den_mat_real[ii, jj], den_mat_imag[ii, jj]) for jj in range(den_mat.shape[1])] for ii in range(den_mat.shape[0])] 
+
         return cls(
             setname=setname,
             structure=structure,
             energies=energies,
             volumes=volumes,
             stresses=stresses,
-            scaling_factors=scaling_factors,
+            x_axis_vals=x_axis_vals,
             bm_fit_params=bm_fit_dct,
             job_uuids=job_uuids,
             job_dirs=job_dirs,
             flow_uuid=flow_uuid,
+            density_matrix=density_matrix,
         )
 
     @property
@@ -426,6 +536,7 @@ class AEWFDoc(StructureMetadata):
             "bm_fit_data": bm_fit_data,
             "completely_off": [],
             "eos_data": eos_data,
+            "density_matrix": self.density_matrix,
             "failed_wfs": [],
             "missing_outputs": [],
             "num_atoms_in_sim_cell": self.num_atoms_in_sim_cell,

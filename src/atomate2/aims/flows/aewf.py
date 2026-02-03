@@ -78,12 +78,15 @@ class AEWFMaker(BaseAEWFMaker):
         min_scaling = scaling_factor * volume0
 
         lattice = structure.lattice.scale(min_scaling).reciprocal_lattice
-
         k_grid = [
             int(np.ceil(np.round(param / 0.06, 5))) for param in lattice.parameters[:3]
         ]
         maker.input_set_generator.user_params["k_grid"] = k_grid
         maker.input_set_generator.user_params["k_offset"] = [0.0, 0.0, 0.0]
+
+        if self.add_den_mat is not None:
+            maker.input_set_generator.user_params["output"] = ["band 0.0 0.0 0.0 0.5 0.0 0.0 2 Gamma X", "eigenvectors", "eigenstate_info"]
+            maker.input_set_generator.user_params["elsi_output_matrix"] = "density_matrix"
 
         return maker
 

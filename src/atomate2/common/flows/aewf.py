@@ -39,6 +39,7 @@ class BaseAEWFMaker(Maker):
     input_key: str = "volume_scaling"
     x_axis_values: list[float] = None
     setname: str = None
+    add_den_mat: tuple[int, str] | None = None
 
     def __post_init__(self) -> None:
         """Set the default scaling factors."""
@@ -85,9 +86,10 @@ class BaseAEWFMaker(Maker):
             structure_eos = relax_job.output.structure
             relax_outputs = (relax_job.uuid, relax_job.output)
 
+        vol_scaling = np.min(self.x_axis_values) if self.input_key == "volume_scaling" else 1.0
         jobs.append(
             self.update_kgrid(
-                structure_eos, self.static_maker, np.min(self.x_axis_values)
+                structure_eos, self.static_maker, vol_scaling
             )
         )
         static_maker = jobs[-1].output
@@ -104,6 +106,7 @@ class BaseAEWFMaker(Maker):
             relax_outputs=relax_outputs,
             setname=self.setname,
             socket=socket,
+            add_den_mat=self.add_den_mat,
         )
 
         jobs.append(eos_static_calcs)

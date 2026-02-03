@@ -166,7 +166,6 @@ class CalculationOutput(BaseModel):
         The FHI-aims calculation output document.
         """
         structure = output.final_structure
-
         electronic_output = {
             "efermi": getattr(output, "fermi_energy", None),
             "vbm": output.vbm,
@@ -174,7 +173,7 @@ class CalculationOutput(BaseModel):
             "bandgap": output.band_gap,
             "direct_bandgap": output.direct_band_gap,
         }
-
+        print(output.get_results_for_image(-1).properties["energy"])
         forces = getattr(output, "forces", None)
 
         stress = None
@@ -188,7 +187,6 @@ class CalculationOutput(BaseModel):
         all_forces = None
         if not any(ff is None for ff in output.all_forces):
             all_forces = [f if (f is not None) else None for f in output.all_forces]
-
         return cls(
             structure=structure,
             energy=output.final_energy,
