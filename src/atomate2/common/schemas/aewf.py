@@ -1,11 +1,15 @@
 """Create a scehema doc for AEWF collaboration."""
 
+import gzip
+import struct
 import warnings
-from typing import Any, Self
 from glob import glob
+from typing import Any, Self
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import scipy.sparse as sp
 from emmet.core.math import Matrix3D
 from emmet.core.structure import StructureMetadata
 from emmet.core.task import BaseTaskDocument
@@ -13,23 +17,28 @@ from pydantic import BaseModel, Field
 from pymatgen.core.structure import Structure
 
 
-import pandas as pd
-import struct
-import scipy.sparse as sp
+def read_elsi_to_csc(filename: str) -> sp.csc_matrix:
+    """Read an ELSI file.
 
-import gzip
+    Parameters
+    ----------
+    filename: str
+        The filename of the the ELSI output file
 
-def read_elsi_to_csc(filename):
-    mat = gzip.open(filename,"rb")
-    data = mat.read()
-    mat.close()
+    Returns
+    -------
+    sp.csc_matrix
+        The read in matrix
+    """
+    with gzip.open(filename, "rb") as mat:
+        data = mat.read()
     i8 = "l"
     i4 = "i"
 
     # Get header
     start = 0
     end = 128
-    header = struct.unpack(i8*16,data[start:end])
+    header = struct.unpack(i8 * 16, data[start:end])
 
     # Number of basis functions (matrix size)
     n_basis = header[3]
@@ -39,15 +48,15 @@ def read_elsi_to_csc(filename):
 
     # Get column pointer
     start = end
-    end = start+n_basis*8
-    col_ptr = struct.unpack(i8*n_basis,data[start:end])
-    col_ptr += (nnz+1,)
+    end = start + n_basis * 8
+    col_ptr = struct.unpack(i8 * n_basis, data[start:end])
+    col_ptr += (nnz + 1,)
     col_ptr = np.array(col_ptr)
 
     # Get row index
     start = end
-    end = start+nnz*4
-    row_idx = struct.unpack(i4*nnz,data[start:end])
+    end = start + nnz * 4
+    row_idx = struct.unpack(i4 * nnz, data[start:end])
     row_idx = np.array(row_idx)
 
     # Get non-zero value
@@ -55,15 +64,15 @@ def read_elsi_to_csc(filename):
 
     if header[2] == 0:
         # Real case
-        end = start+nnz*8
-        nnz_val = struct.unpack("d"*nnz,data[start:end])
+        end = start + nnz * 8
+        nnz_val = struct.unpack("d" * nnz, data[start:end])
     else:
         # Complex case
-        end = start+nnz*16
-        nnz_val = struct.unpack("d"*nnz*2,data[start:end])
+        end = start + nnz * 16
+        nnz_val = struct.unpack("d" * nnz * 2, data[start:end])
         nnz_val_real = np.array(nnz_val[0::2])
         nnz_val_imag = np.array(nnz_val[1::2])
-        nnz_val = nnz_val_real + 1j*nnz_val_imag
+        nnz_val = nnz_val_real + 1j * nnz_val_imag
 
     nnz_val = np.array(nnz_val)
 
@@ -71,10 +80,10 @@ def read_elsi_to_csc(filename):
     for i_val in range(nnz):
         row_idx[i_val] -= 1
 
-    for i_col in range(n_basis+1):
+    for i_col in range(n_basis + 1):
         col_ptr[i_col] -= 1
 
-    return sp.csc_matrix((nnz_val,row_idx,col_ptr),shape=(n_basis,n_basis))
+    return sp.csc_matrix((nnz_val, row_idx, col_ptr), shape=(n_basis, n_basis))
 
 
 def bm(
@@ -294,7 +303,9 @@ class AEWFDoc(StructureMetadata):
         None, description="Job directories for the workflow"
     )
 
-    density_matrix: dict[float, list[list[tuple[float, float]]]] | None = Field(None, description="The requested part of the density matrix")
+    density_matrix: dict[float, list[list[tuple[float, float]]]] | None = Field(
+        None, description="The requested part of the density matrix"
+    )
 
     @classmethod
     def from_outputs(
@@ -370,7 +381,6 @@ class AEWFDoc(StructureMetadata):
                 if eta_scale == 1.0:
                     structure = task_doc.output.trajectory[index]
                 energy = task_doc.output.trajectory[index].properties.get("energy")
-                print(task_doc.output.trajectory[index].properties)
                 if energy is not None:
                     volumes.append(task_doc.output.trajectory[index].volume)
                     energies.append(energy)
@@ -407,44 +417,68 @@ class AEWFDoc(StructureMetadata):
         )
 
         density_matrix = None
-        if False: # add_den_mat is not None:
+        if add_den_mat is not None:
             density_matrix = {}
             if not isinstance(eos_outputs, dict):
-                raise ValueError("Density matrix analysis is impossible as files were overwritten")
+                raise ValueError(
+                    "Density matrix analysis is impossible as files were overwritten"
+                )
 
-            for xval, jobdir_host_path in zip(x_axis_vals, eos_jobdirs): 
+            for xval, jobdir_host_path in zip(x_axis_vals, eos_jobdirs, strict=False):
                 jobdir = jobdir_host_path.split(":")[1]
                 dat = np.genfromtxt(f"{jobdir}/KS_eigenvectors.band_1.kpt_1.out")
-                fxn_typ = np.genfromtxt(f"{jobdir}/KS_eigenvectors.band_1.kpt_1.out", usecols=(2,), dtype=str)
-                l = np.genfromtxt(f"{jobdir}/KS_eigenvectors.band_1.kpt_1.out", usecols=(4,), dtype=str)
-                
+                fxn_typ = np.genfromtxt(
+                    f"{jobdir}/KS_eigenvectors.band_1.kpt_1.out",
+                    usecols=(2,),
+                    dtype=str,
+                )
+                l = np.genfromtxt(  # noqa: E741
+                    f"{jobdir}/KS_eigenvectors.band_1.kpt_1.out",
+                    usecols=(4,),
+                    dtype=str,
+                )
+
                 atomic_fxns = np.where(fxn_typ == "atomic")[0]
                 f_fxns = np.where(l == add_den_mat[1])[0]
                 shell_fxns = np.where(dat[:, 3] == add_den_mat[0])[0]
-                
-                basis_fxns = np.intersect1d(np.intersect1d(atomic_fxns, f_fxns), shell_fxns)
+
+                basis_fxns = np.intersect1d(
+                    np.intersect1d(atomic_fxns, f_fxns), shell_fxns
+                )
                 eig_vec_mat = dat[basis_fxns, 6::2]
-                
+
                 columns = np.arange(1, eig_vec_mat.shape[1] + 1)
-                index = [f"{int(dat[ii, 0])}_{int(dat[ii, 1])}_{int(dat[ii, 5])}" for ii in basis_fxns]
-                
-                eig_vec_df = pd.DataFrame(data=eig_vec_mat, columns=columns, index=index)
+                index = [
+                    f"{int(dat[ii, 0])}_{int(dat[ii, 1])}_{int(dat[ii, 5])}"
+                    for ii in basis_fxns
+                ]
+
+                eig_vec_df = pd.DataFrame(
+                    data=eig_vec_mat, columns=columns, index=index
+                )
                 eig_vec_df.to_csv(f"{jobdir}/eigenvec_subshell.csv")
-                
-                den_mat = np.zeros((len(basis_fxns), len(basis_fxns)), dtype=np.complex128)
+
+                den_mat = np.zeros(
+                    (len(basis_fxns), len(basis_fxns)), dtype=np.complex128
+                )
                 xx, yy = np.meshgrid(basis_fxns, basis_fxns)
-     
-                eigenstate_info = np.genfromtxt(f"{jobdir}/eigenstate_info.out")
-     
+
                 for file in glob(f"{jobdir}/D_spin_01_kpt*"):
-                    k_ind = int(file.split("kpt_")[1].split(".csc")[0])
                     den_mat += read_elsi_to_csc(file).toarray()[xx, yy]
-     
-                    den_df = pd.DataFrame(index=basis_fxns, columns=basis_fxns, data=den_mat)
+
+                    den_df = pd.DataFrame(
+                        index=basis_fxns, columns=basis_fxns, data=den_mat
+                    )
                     den_df.to_csv(f"{jobdir}/density_matrix_states.csv")
                 den_mat_real = np.real(den_mat)
                 den_mat_imag = np.imag(den_mat)
-                density_matrix[xval] = [[(den_mat_real[ii, jj], den_mat_imag[ii, jj]) for jj in range(den_mat.shape[1])] for ii in range(den_mat.shape[0])] 
+                density_matrix[xval] = [
+                    [
+                        (den_mat_real[ii, jj], den_mat_imag[ii, jj])
+                        for jj in range(den_mat.shape[1])
+                    ]
+                    for ii in range(den_mat.shape[0])
+                ]
 
         return cls(
             setname=setname,

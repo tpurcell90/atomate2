@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import os
+import shutil
 import subprocess
+from glob import glob
 from os.path import expandvars
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ase.calculators.aims import Aims
+from ase.calculators.aims import Aims, AimsProfile
 from ase.calculators.socketio import SocketIOCalculator
 from monty.json import MontyDecoder
 from pymatgen.io.ase import AseAtomsAdaptor
@@ -111,17 +115,14 @@ def run_aims_socket(
     for key in del_keys:
         parameters.pop(key)
 
-    if aims_cmd:
-        parameters["command"] = aims_cmd
-    elif "command" not in parameters:
-        parameters["command"] = SETTINGS.AIMS_CMD
+    profile = AimsProfile(command=aims_cmd if aims_cmd else SETTINGS.AIMS_CMD)
 
-    calculator = Aims(**parameters)
+    calculator = Aims(profile=profile, **parameters)
     port = parameters["use_pimd_wrapper"][1]
     atoms = atoms_to_calculate[0].copy()
 
     with SocketIOCalculator(calc=calculator, port=port) as calc:
-        for atoms_calc in atoms_to_calculate:
+        for ac, atoms_calc in enumerate(atoms_to_calculate):
             # Delete prior calculation results
             calc.results.clear()
 
@@ -131,5 +132,20 @@ def run_aims_socket(
             atoms.positions = atoms_calc.positions
 
             calc.calculate(atoms, system_changes=["positions", "cell"])
+            if "plus_u_matrix_control" in parameters:
+                out_mat_path = Path(f"elsi_output_calc_{ac:04d}")
+                out_mat_path.mkdir(exist_ok=True)
+                shutil.copy("occupation_matrix_control.txt", out_mat_path)
+
+            if "elsi_output_matrix" in parameters:
+                out_mat_path = Path(f"elsi_output_calc_{ac:04d}")
+                out_mat_path.mkdir(exist_ok=True)
+
+                for file in glob("*csc"):
+                    with (
+                        open(file, "rb") as f_in,
+                        gzip.open(f"{out_mat_path}/{file}.gz", "wb") as f_out,
+                    ):
+                        shutil.copyfileobj(f_in, f_out)
 
         calc.close()
