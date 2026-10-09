@@ -1,4 +1,4 @@
-"""Atomate2 flows for molecular conformer, FHI-aims, and IR calculations"""
+"""Atomate2 flows for molecular conformer, FHI-aims, and IR calculations."""
 
 from __future__ import annotations
 
@@ -6,18 +6,22 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from jobflow import Flow, Maker
 from monty.serialization import loadfn
+from pymatgen.io.aims.sets.core import RelaxSetGenerator
 from rdkit import Chem as _Chem  # noqa: F401
 
 from atomate2.aims.flows.core import RelaxMaker
-from atomate2.aims.jobs.molecular_ir import conformer_search_job, molecular_ir_job, save_optimization_job
+from atomate2.aims.jobs.molecular_ir import (
+    conformer_search_job,
+    molecular_ir_job,
+    save_optimization_job,
+)
 from atomate2.aims.schemas.molecular_ir import ConformerMetadata
-from jobflow import Flow, Maker
-from pymatgen.io.aims.sets.core import RelaxSetGenerator
 
 
 def _default_relax_parameters() -> dict[str, Any]:
-    """Return FHI-aims parameters used for molecular geometry optimization"""
+    """Return FHI-aims parameters used for molecular geometry optimization."""
     return {
         "xc": "b3lyp",
         "species_dir": "defaults_2020/tight",
@@ -34,7 +38,7 @@ def _default_relax_parameters() -> dict[str, Any]:
 
 
 def _default_static_parameters() -> dict[str, Any]:
-    """Return FHI-aims parameters used for displaced-geometry force jobs"""
+    """Return FHI-aims parameters used for displaced-geometry force jobs."""
     parameters = _default_relax_parameters()
     parameters.pop("relax_geometry")
     parameters.update(
@@ -48,7 +52,7 @@ def _default_static_parameters() -> dict[str, Any]:
 
 
 def _default_relax_maker() -> RelaxMaker:
-    """Construct the standard Atomate2 FHI-aims relaxation Maker"""
+    """Construct the standard Atomate2 FHI-aims relaxation Maker."""
     return RelaxMaker(
         name="FHI-aims molecular geometry optimization",
         input_set_generator=RelaxSetGenerator(
@@ -106,19 +110,55 @@ class MolecularIRMaker(Maker):
     wavenumber_step_cm1: float = 0.001
 
     def make(self, molecule_id: str, smiles: str) -> Flow:
-        """Create a Jobflow Flow for one molecule"""
-        results_dir = Path(self.results_directory).expanduser().resolve() if self.results_directory else None
+        """Create a Jobflow Flow for one molecule."""
+        results_dir = (
+            Path(self.results_directory).expanduser().resolve()
+            if self.results_directory
+            else None
+        )
         conformer_dir = results_dir / "conformer" if results_dir else None
         optimization_dir = results_dir / "aims_optimize" if results_dir else None
         ir_dir = results_dir / "ir" if results_dir else None
         dataset_dir = results_dir.parent if results_dir else None
-        optimized_file = optimization_dir / "optimized_molecule.json" if optimization_dir else None
-        metadata_file = conformer_dir / "conformer_search.json" if conformer_dir else None
-        if optimized_file and optimized_file.exists() and metadata_file and metadata_file.exists():
+        optimized_file = (
+            optimization_dir / "optimized_molecule.json" if optimization_dir else None
+        )
+        metadata_file = (
+            conformer_dir / "conformer_search.json" if conformer_dir else None
+        )
+        if (
+            optimized_file
+            and optimized_file.exists()
+            and metadata_file
+            and metadata_file.exists()
+        ):
             molecule = loadfn(optimized_file)
             metadata = ConformerMetadata.model_validate_json(metadata_file.read_text())
-            ir_job = molecular_ir_job(molecule=molecule, conformer=metadata, relax_maker=self.relax_maker, get_vibrations_script=str(self.get_vibrations_script), static_parameters=self.static_parameters, restart_directory=ir_dir, dataset_directory=dataset_dir, n_parallel_displacements=self.n_parallel_displacements, displacement_aims_cmd=self.displacement_aims_cmd, imaginary_threshold_cm_1=self.imaginary_threshold_cm_1, imaginary_displacement_angstrom=self.imaginary_displacement_angstrom, max_imaginary_cycles=self.max_imaginary_cycles, correction_cycle=0, weight_fraction=self.weight_fraction, polymer_density_g_ml=self.polymer_density_g_ml, path_length_cm=self.path_length_cm, min_wavenumber_cm_1=self.frequency_min_cm1, max_wavenumber_cm_1=self.frequency_max_cm1, wavenumber_step_cm_1=self.wavenumber_step_cm1, lorentzian_fwhm_cm_1=self.linewidth_cm1)
-            return Flow([ir_job], output=ir_job.output, name=f"{self.name}: {molecule_id}")
+            ir_job = molecular_ir_job(
+                molecule=molecule,
+                conformer=metadata,
+                relax_maker=self.relax_maker,
+                get_vibrations_script=str(self.get_vibrations_script),
+                static_parameters=self.static_parameters,
+                restart_directory=ir_dir,
+                dataset_directory=dataset_dir,
+                n_parallel_displacements=self.n_parallel_displacements,
+                displacement_aims_cmd=self.displacement_aims_cmd,
+                imaginary_threshold_cm_1=self.imaginary_threshold_cm_1,
+                imaginary_displacement_angstrom=self.imaginary_displacement_angstrom,
+                max_imaginary_cycles=self.max_imaginary_cycles,
+                correction_cycle=0,
+                weight_fraction=self.weight_fraction,
+                polymer_density_g_ml=self.polymer_density_g_ml,
+                path_length_cm=self.path_length_cm,
+                min_wavenumber_cm_1=self.frequency_min_cm1,
+                max_wavenumber_cm_1=self.frequency_max_cm1,
+                wavenumber_step_cm_1=self.wavenumber_step_cm1,
+                lorentzian_fwhm_cm_1=self.linewidth_cm1,
+            )
+            return Flow(
+                [ir_job], output=ir_job.output, name=f"{self.name}: {molecule_id}"
+            )
         conformer_job = conformer_search_job(
             molecule_id=molecule_id,
             smiles=smiles,
@@ -131,7 +171,11 @@ class MolecularIRMaker(Maker):
         )
 
         relax_job = self.relax_maker.make(conformer_job.output.molecule)
-        optimize_job = save_optimization_job(relax_job.output.output.structure, relax_job.output.dir_name, optimization_dir or Path.cwd() / "aims_optimize")
+        optimize_job = save_optimization_job(
+            relax_job.output.output.structure,
+            relax_job.output.dir_name,
+            optimization_dir or Path.cwd() / "aims_optimize",
+        )
 
         ir_job = molecular_ir_job(
             molecule=optimize_job.output,
@@ -165,20 +209,36 @@ class MolecularIRMaker(Maker):
 
 @dataclass
 class MolecularIRDatasetMaker(Maker):
-    
+    """Creates an IR Dataset."""
+
     name: str = "molecular IR dataset workflow"
     molecule_maker: MolecularIRMaker = field(default_factory=MolecularIRMaker)
     results_root: str | Path | None = None
 
     def make(self, records: list[dict[str, str]]) -> Flow:
         """Create one subflow per ``molecule_id``/``smiles`` record."""
-        root = Path(self.results_root).expanduser().resolve() if self.results_root else None
+        root = (
+            Path(self.results_root).expanduser().resolve()
+            if self.results_root
+            else None
+        )
         molecule_flows = []
         for record in records:
             molecule_id = record["molecule_id"]
-            safe_id = "".join(character if character.isalnum() or character in "_.-" else "_" for character in molecule_id)
-            maker = replace(self.molecule_maker, results_directory=root / safe_id[:2] / safe_id) if root else self.molecule_maker
-            molecule_flows.append(maker.make(molecule_id=molecule_id, smiles=record["smiles"]))
+            safe_id = "".join(
+                character if character.isalnum() or character in "_.-" else "_"
+                for character in molecule_id
+            )
+            maker = (
+                replace(
+                    self.molecule_maker, results_directory=root / safe_id[:2] / safe_id
+                )
+                if root
+                else self.molecule_maker
+            )
+            molecule_flows.append(
+                maker.make(molecule_id=molecule_id, smiles=record["smiles"])
+            )
         return Flow(
             jobs=molecule_flows,
             output=[molecule_flow.output for molecule_flow in molecule_flows],
