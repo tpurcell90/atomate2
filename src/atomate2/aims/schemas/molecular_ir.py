@@ -1,4 +1,4 @@
-"""Schemas for molecular FHI-aims IR workflows"""
+"""Schemas for molecular FHI-aims IR workflows."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pymatgen.core import Molecule
 
 
 class ConformerMetadata(BaseModel):
-    """RDKit conformer search"""
+    """RDKit conformer search."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -25,7 +25,7 @@ class ConformerMetadata(BaseModel):
 
 
 class ConformerSearchDoc(BaseModel):
-    """Output produced by the conformer-search job"""
+    """Output produced by the conformer-search job."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -34,7 +34,7 @@ class ConformerSearchDoc(BaseModel):
 
 
 class ImaginaryModeCorrection(BaseModel):
-    """Record of one distortion along an imaginary normal mode"""
+    """Record of one distortion along an imaginary normal mode."""
 
     cycle: int
     mode_index_zero_based: int
@@ -45,7 +45,7 @@ class ImaginaryModeCorrection(BaseModel):
 
 
 class IRPostProcessingDoc(BaseModel):
-    """Summary of the broadened IR spectrum calculation"""
+    """Summary of the broadened IR spectrum calculation."""
 
     molecular_weight_g_mol: float
     weight_fraction: float
@@ -61,7 +61,7 @@ class IRPostProcessingDoc(BaseModel):
 
 
 class MolecularIRTaskDoc(BaseModel):
-    """Final task document for one molecular IR workflow"""
+    """Final task document for one molecular IR workflow."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

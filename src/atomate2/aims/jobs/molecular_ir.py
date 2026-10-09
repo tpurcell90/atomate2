@@ -1,4 +1,4 @@
-"""Jobs for conformer search, molecular vibrations, and IR post-processing"""
+"""Jobs for conformer search, molecular vibrations, and IR post-processing."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from atomate2.aims.run import run_aims
 from jobflow import Flow, Maker, Response, job
 from monty.json import MontyDecoder, MontyEncoder
 from monty.serialization import dumpfn
@@ -28,6 +27,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from scipy.integrate import simpson
 
+from atomate2.aims.run import run_aims
 from atomate2.aims.schemas.molecular_ir import (
     ConformerMetadata,
     ConformerSearchDoc,
@@ -61,8 +61,10 @@ def _run_command(
         )
 
 
-def _etkdg_parameters(seed: int, prune_rms: float, random_coords: bool):
-    """Return configured RDKit ETKDGv3 parameters"""
+def _etkdg_parameters(
+    seed: int, prune_rms: float, random_coords: bool
+) -> Chem.rdDistGeom.EmbedParameters:
+    """Return configured RDKit ETKDGv3 parameters."""
     parameters = AllChem.ETKDGv3()
     parameters.randomSeed = int(seed)
     parameters.pruneRmsThresh = float(prune_rms)
@@ -73,7 +75,7 @@ def _etkdg_parameters(seed: int, prune_rms: float, random_coords: bool):
 
 
 def _coordinates(molecule: Chem.Mol, conformer_id: int) -> tuple[list[str], np.ndarray]:
-    """Return symbols and Cartesian coordinates for one RDKit conformer"""
+    """Return symbols and Cartesian coordinates for one RDKit conformer."""
     conformer = molecule.GetConformer(int(conformer_id))
     symbols: list[str] = []
     coordinates: list[list[float]] = []
@@ -89,7 +91,7 @@ def _write_conformer_trajectory(
     results: dict[int, tuple[int, float]],
     filename: Path,
 ) -> None:
-    """Write all optimized conformers using Pymatgen's Molecule"""
+    """Write all optimized conformers using Pymatgen's Molecule."""
     frames: list[Molecule] = []
     energy_records: list[dict[str, int | float]] = []
     for conformer_id, (not_converged, energy) in results.items():
@@ -125,7 +127,7 @@ def conformer_search_job(
     save_all_conformers: bool = True,
     output_directory: str | Path | None = None,
 ) -> ConformerSearchDoc:
-    """Generate ETKDG conformers and select the lowest-energy optimized one"""
+    """Generate ETKDG conformers and select the lowest-energy optimized one."""
     rdkit_molecule = Chem.MolFromSmiles(smiles)
     if rdkit_molecule is None:
         raise ValueError(f"RDKit could not parse {molecule_id}: {smiles}")
@@ -150,9 +152,7 @@ def conformer_search_job(
     coordinate_modes = [False, True] if use_random_coordinates_fallback else [False]
     for random_coordinates in coordinate_modes:
         for seed in fallback_seeds:
-            parameters = _etkdg_parameters(
-                seed, prune_rms_angstrom, random_coordinates
-            )
+            parameters = _etkdg_parameters(seed, prune_rms_angstrom, random_coordinates)
             conformer_ids = list(
                 AllChem.EmbedMultipleConfs(
                     rdkit_molecule,
@@ -182,9 +182,7 @@ def conformer_search_job(
         )
     results = {
         int(conformer_id): (int(flag), float(energy))
-        for conformer_id, (flag, energy) in zip(
-            conformer_ids, raw_results, strict=True
-        )
+        for conformer_id, (flag, energy) in zip(conformer_ids, raw_results, strict=True)
     }
     converged = {
         conformer_id: energy
@@ -192,8 +190,7 @@ def conformer_search_job(
         if flag == 0
     }
     candidates = converged or {
-        conformer_id: energy
-        for conformer_id, (_, energy) in results.items()
+        conformer_id: energy for conformer_id, (_, energy) in results.items()
     }
     best_id = min(candidates, key=candidates.get)
     best_energy = results[best_id][1]
@@ -212,11 +209,17 @@ def conformer_search_job(
             maxIters=max_iterations,
         )
 
-    output_dir = Path(output_directory).expanduser().resolve() if output_directory else Path.cwd()
+    output_dir = (
+        Path(output_directory).expanduser().resolve()
+        if output_directory
+        else Path.cwd()
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     species, cartesian_coordinates = _coordinates(rdkit_molecule, best_id)
     molecule = Molecule(species, cartesian_coordinates)
-    XYZ(molecule, coord_precision=12).write_file(str(output_dir / "rdkit_lowest_energy_conformer.xyz"))
+    XYZ(molecule, coord_precision=12).write_file(
+        str(output_dir / "rdkit_lowest_energy_conformer.xyz")
+    )
     if save_all_conformers:
         _write_conformer_trajectory(
             rdkit_molecule,
@@ -235,13 +238,17 @@ def conformer_search_job(
         embedding_seed=seed_used,
         used_random_coordinates=used_random_coordinates,
     )
-    (output_dir / "conformer_search.json").write_text(metadata.model_dump_json(indent=2) + "\n")
+    (output_dir / "conformer_search.json").write_text(
+        metadata.model_dump_json(indent=2) + "\n"
+    )
     return ConformerSearchDoc(molecule=molecule, metadata=metadata)
 
 
 @job
-def save_optimization_job(molecule: Molecule, source_directory: str, output_directory: str | Path) -> Molecule:
-    """Save the completed FHI-aims optimization"""
+def save_optimization_job(
+    molecule: Molecule, source_directory: str, output_directory: str | Path
+) -> Molecule:
+    """Save the completed FHI-aims optimization."""
     source_text = str(source_directory)
     remote_path = re.match(r"^[^/:]+:(/.*)$", source_text)
     source = Path(remote_path.group(1) if remote_path else source_text)
@@ -256,7 +263,10 @@ def save_optimization_job(molecule: Molecule, source_directory: str, output_dire
     if compressed_aims_output.exists():
         shutil.copy2(compressed_aims_output, output / "aims.out.gz")
     elif aims_output.exists():
-        with aims_output.open("rb") as source_handle, gzip.open(output / "aims.out.gz", "wb") as output_handle:
+        with (
+            aims_output.open("rb") as source_handle,
+            gzip.open(output / "aims.out.gz", "wb") as output_handle,
+        ):
             shutil.copyfileobj(source_handle, output_handle)
     else:
         raise FileNotFoundError(f"No aims.out or aims.out.gz found in {source}")
@@ -264,7 +274,7 @@ def save_optimization_job(molecule: Molecule, source_directory: str, output_dire
 
 
 def _read_modes(modes_file: Path) -> tuple[np.ndarray, np.ndarray]:
-    """Read frequency and IR-intensity columns from get_vibrations.py output"""
+    """Read frequency and IR-intensity columns from get_vibrations.py output."""
     frequencies: list[float] = []
     intensities: list[float] = []
     for line in modes_file.read_text().splitlines():
@@ -291,7 +301,7 @@ def _displace_imaginary_mode(
     maximum_displacement: float,
     eigenvectors_are_columns: bool,
 ) -> tuple[Molecule, int, float, float]:
-    """Return a molecule displaced along its most-negative normal mode"""
+    """Return a molecule displaced along its most-negative normal mode."""
     n_cartesian = 3 * len(molecule)
     eigenvectors = np.loadtxt(eigenvectors_file, comments="#")
     if eigenvectors.shape != (n_cartesian, n_cartesian):
@@ -339,14 +349,12 @@ def _postprocess_ir(
     step: float,
     fwhm: float,
 ) -> IRPostProcessingDoc:
-    """Broaden modes and calculate average epsilon and % transmission"""
+    """Broaden modes and calculate average epsilon and % transmission."""
     frequencies, aims_intensities = _read_modes(modes_file)
     wavenumbers = np.arange(min_wavenumber, max_wavenumber + 1.0e-10, step)
     epsilon = np.zeros_like(wavenumbers)
     half_width = 0.5 * fwhm
-    for frequency, aims_intensity in zip(
-        frequencies, aims_intensities, strict=True
-    ):
+    for frequency, aims_intensity in zip(frequencies, aims_intensities, strict=True):
         if frequency < 10.0:
             continue
         intensity_km_mol = 42.255 * aims_intensity
@@ -360,9 +368,7 @@ def _postprocess_ir(
         )
 
     molecular_weight = float(molecule.composition.weight)
-    concentration = (
-        1000.0 * weight_fraction * polymer_density_g_ml / molecular_weight
-    )
+    concentration = 1000.0 * weight_fraction * polymer_density_g_ml / molecular_weight
     transmission = 10.0 ** (2.0 - epsilon * concentration * path_length_cm)
     width = max_wavenumber - min_wavenumber
     average_epsilon = float(simpson(y=epsilon, x=wavenumbers) / width)
@@ -376,7 +382,7 @@ def _postprocess_ir(
             "transmission_percent": transmission,
         }
     ).to_csv(spectrum_file, index=False, compression="gzip")
-    document = IRPostProcessingDoc(
+    return IRPostProcessingDoc(
         molecular_weight_g_mol=molecular_weight,
         weight_fraction=weight_fraction,
         polymer_density_g_ml=polymer_density_g_ml,
@@ -387,28 +393,49 @@ def _postprocess_ir(
         average_epsilon_l_mol_1_cm_1=average_epsilon,
         average_transmission_percent=average_transmission,
         spectrum_file=_atomate2_runs_path(spectrum_file),
-        summary_file=_atomate2_runs_path(summary_file)
+        summary_file=_atomate2_runs_path(summary_file),
     )
-    return document
 
 
 def _atomate2_runs_path(path: Path) -> str:
-    """Return a result path"""
+    """Return a result path."""
     resolved = path.resolve()
-    indices = [index for index, part in enumerate(resolved.parts) if part == "atomate2_runs"]
+    indices = [
+        index for index, part in enumerate(resolved.parts) if part == "atomate2_runs"
+    ]
     if not indices:
         raise ValueError(f"Result is not inside atomate2_runs: {resolved}")
-    return Path(*resolved.parts[indices[-1]:]).as_posix()
+    return Path(*resolved.parts[indices[-1] :]).as_posix()
 
 
-def _update_dataset_csv(summary_file: Path, molecule_id: str, smiles: str, postprocessing: IRPostProcessingDoc) -> None:
-    """Insert or replace one molecule in the results CSV"""
+def _update_dataset_csv(
+    summary_file: Path,
+    molecule_id: str,
+    smiles: str,
+    postprocessing: IRPostProcessingDoc,
+) -> None:
+    """Insert or replace one molecule in the results CSV."""
     summary_file.parent.mkdir(parents=True, exist_ok=True)
-    row = {"molecule_id": molecule_id, "smiles": smiles, "molecular_weight_g_mol": postprocessing.molecular_weight_g_mol, "weight_fraction": postprocessing.weight_fraction, "polymer_density_g_ml": postprocessing.polymer_density_g_ml, "path_length_cm": postprocessing.path_length_cm, "minimum_wavenumber_cm_1": postprocessing.minimum_wavenumber_cm_1, "maximum_wavenumber_cm_1": postprocessing.maximum_wavenumber_cm_1, "lorentzian_fwhm_cm_1": postprocessing.lorentzian_fwhm_cm_1, "average_epsilon_l_mol_1_cm_1": postprocessing.average_epsilon_l_mol_1_cm_1, "average_transmission_percent": postprocessing.average_transmission_percent, "spectrum_file": postprocessing.spectrum_file}
+    row = {
+        "molecule_id": molecule_id,
+        "smiles": smiles,
+        "molecular_weight_g_mol": postprocessing.molecular_weight_g_mol,
+        "weight_fraction": postprocessing.weight_fraction,
+        "polymer_density_g_ml": postprocessing.polymer_density_g_ml,
+        "path_length_cm": postprocessing.path_length_cm,
+        "minimum_wavenumber_cm_1": postprocessing.minimum_wavenumber_cm_1,
+        "maximum_wavenumber_cm_1": postprocessing.maximum_wavenumber_cm_1,
+        "lorentzian_fwhm_cm_1": postprocessing.lorentzian_fwhm_cm_1,
+        "average_epsilon_l_mol_1_cm_1": postprocessing.average_epsilon_l_mol_1_cm_1,
+        "average_transmission_percent": postprocessing.average_transmission_percent,
+        "spectrum_file": postprocessing.spectrum_file,
+    }
     lock_file = summary_file.with_suffix(summary_file.suffix + ".lock")
     with lock_file.open("w") as lock_handle:
         fcntl.flock(lock_handle, fcntl.LOCK_EX)
-        existing = pd.read_csv(summary_file) if summary_file.exists() else pd.DataFrame()
+        existing = (
+            pd.read_csv(summary_file) if summary_file.exists() else pd.DataFrame()
+        )
         if "molecule_id" in existing.columns:
             existing = existing[existing["molecule_id"].astype(str) != str(molecule_id)]
         updated = pd.concat([existing, pd.DataFrame([row])], ignore_index=True)
@@ -419,9 +446,13 @@ def _update_dataset_csv(summary_file: Path, molecule_id: str, smiles: str, postp
 
 
 def _archive_displacements(ir_directory: Path, safe_id: str) -> Path:
-    """Archive all displacement directories into one tar.gz file"""
+    """Archive all displacement directories into one tar.gz file."""
     archive = ir_directory / "displacement_calculations.tar.gz"
-    displacement_directories = sorted(path for path in ir_directory.glob(f"cycle_*/{safe_id}.i_atom_*.i_coord_*.disp_*") if path.is_dir())
+    displacement_directories = sorted(
+        path
+        for path in ir_directory.glob(f"cycle_*/{safe_id}.i_atom_*.i_coord_*.disp_*")
+        if path.is_dir()
+    )
     if not archive.exists() and displacement_directories:
         temporary = archive.with_suffix(archive.suffix + ".tmp")
         temporary.unlink(missing_ok=True)
@@ -438,13 +469,13 @@ def _archive_displacements(ir_directory: Path, safe_id: str) -> Path:
 
 
 def _aims_complete(directory: Path) -> bool:
-    """Return whether a displacement finished normally"""
+    """Return whether a displacement finished normally."""
     output = directory / "aims.out"
     return output.is_file() and "Have a nice day." in output.read_text(errors="ignore")
 
 
 def _run_displacement(directory: str | Path, aims_cmd: str | None) -> str:
-    """Run one displacement"""
+    """Run one displacement."""
     directory = Path(directory)
     if _aims_complete(directory):
         return str(directory)
@@ -486,30 +517,57 @@ def molecular_ir_job(
     wavenumber_step_cm_1: float = 0.001,
     lorentzian_fwhm_cm_1: float = 10.0,
 ) -> MolecularIRTaskDoc | Response:
-    """Run finite-difference IR and post-process"""
+    """Run finite-difference IR and post-process."""
     molecule_id = conformer.molecule_id
     safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", molecule_id)
-    workdir = Path(restart_directory).expanduser().resolve() / f"cycle_{correction_cycle}" if restart_directory else Path.cwd()
+    workdir = (
+        Path(restart_directory).expanduser().resolve() / f"cycle_{correction_cycle}"
+        if restart_directory
+        else Path.cwd()
+    )
     workdir.mkdir(parents=True, exist_ok=True)
-    final_document_file = Path(restart_directory).expanduser().resolve() / "molecular_ir_task.json" if restart_directory else workdir / "molecular_ir_task.json"
+    final_document_file = (
+        Path(restart_directory).expanduser().resolve() / "molecular_ir_task.json"
+        if restart_directory
+        else workdir / "molecular_ir_task.json"
+    )
     if final_document_file.exists():
-        document = MolecularIRTaskDoc.model_validate(json.loads(final_document_file.read_text(), cls=MontyDecoder))
+        document = MolecularIRTaskDoc.model_validate(
+            json.loads(final_document_file.read_text(), cls=MontyDecoder)
+        )
         if restart_directory:
-            _archive_displacements(Path(restart_directory).expanduser().resolve(), safe_id)
+            _archive_displacements(
+                Path(restart_directory).expanduser().resolve(), safe_id
+            )
         return document
     history = list(correction_history or [])
     restart_molecule_file = workdir / "restart_molecule.json"
     if restart_molecule_file.exists():
-        restart_molecule = json.loads(restart_molecule_file.read_text(), cls=MontyDecoder)
-        same_species = [str(specie) for specie in restart_molecule.species] == [str(specie) for specie in molecule.species]
-        if not same_species or not np.allclose(restart_molecule.cart_coords, molecule.cart_coords, atol=1.0e-4, rtol=0.0):
-            raise RuntimeError(f"Restart geometry differs from the current geometry. Remove or rename {workdir} to start a new calculation.")
+        restart_molecule = json.loads(
+            restart_molecule_file.read_text(), cls=MontyDecoder
+        )
+        same_species = [str(specie) for specie in restart_molecule.species] == [
+            str(specie) for specie in molecule.species
+        ]
+        if not same_species or not np.allclose(
+            restart_molecule.cart_coords, molecule.cart_coords, atol=1.0e-4, rtol=0.0
+        ):
+            raise RuntimeError(
+                "Restart geometry differs from the current geometry. "
+                "Remove or rename {workdir} to start a new calculation."
+            )
     else:
-        restart_molecule_file.write_text(json.dumps(molecule, cls=MontyEncoder, indent=2) + "\n")
+        restart_molecule_file.write_text(
+            json.dumps(molecule, cls=MontyEncoder, indent=2) + "\n"
+        )
 
-    input_set = StaticSetGenerator(user_params=static_parameters).get_input_set(molecule)
+    input_set = StaticSetGenerator(user_params=static_parameters).get_input_set(
+        molecule
+    )
     input_set.write_input(workdir)
-    (workdir / "parameters.json").unlink(missing_ok=True)   ## Does not write parameters.json
+    (workdir / "parameters.json").unlink(
+        missing_ok=True
+    )  ## Does not write parameters.json
     control_text = (workdir / "control.in").read_text()
     if not re.search(r"^\s*output\s+dipole\b", control_text, flags=re.MULTILINE):
         raise RuntimeError(
@@ -521,30 +579,58 @@ def molecular_ir_job(
     source_script = Path(get_vibrations_script).expanduser().resolve()
     if not source_script.exists():
         raise FileNotFoundError(source_script)
-    #shutil.copy2(source_script, workdir / "get_vibrations.py")
-    displacement_directories = sorted(directory for directory in workdir.glob(f"{safe_id}.i_atom_*.i_coord_*.disp_*") if directory.is_dir())
+    # shutil.copy2(source_script, workdir / "get_vibrations.py")
+    displacement_directories = sorted(
+        directory
+        for directory in workdir.glob(f"{safe_id}.i_atom_*.i_coord_*.disp_*")
+        if directory.is_dir()
+    )
     expected_displacements = 6 * len(molecule)
     if len(displacement_directories) != expected_displacements:
-        _run_command([sys.executable, str(source_script), safe_id, "prepare", "-d", str(displacement_angstrom)], cwd=workdir, log_file=workdir / "get_vibrations_prepare.log")
-        displacement_directories = sorted(directory for directory in workdir.glob(f"{safe_id}.i_atom_*.i_coord_*.disp_*") if directory.is_dir())
+        _run_command(
+            [
+                sys.executable,
+                str(source_script),
+                safe_id,
+                "prepare",
+                "-d",
+                str(displacement_angstrom),
+            ],
+            cwd=workdir,
+            log_file=workdir / "get_vibrations_prepare.log",
+        )
+        displacement_directories = sorted(
+            directory
+            for directory in workdir.glob(f"{safe_id}.i_atom_*.i_coord_*.disp_*")
+            if directory.is_dir()
+        )
     if len(displacement_directories) != expected_displacements:
-        raise RuntimeError(f"Expected {expected_displacements} displacement directories for {molecule_id}, found {len(displacement_directories)}")
+        raise RuntimeError(
+            f"Expected {expected_displacements} displacement directories "
+            f"for {molecule_id}, found {len(displacement_directories)}"
+        )
 
-    pending = [directory for directory in displacement_directories if not _aims_complete(directory)]
-    print(f"{safe_id}: {len(displacement_directories) - len(pending)} complete, {len(pending)} pending, {n_parallel_displacements} parallel displacements")
+    pending = [
+        directory
+        for directory in displacement_directories
+        if not _aims_complete(directory)
+    ]
     if n_parallel_displacements < 1:
         raise ValueError("n_parallel_displacements must be at least 1")
     if n_parallel_displacements == 1:
-        for index, directory in enumerate(pending, start=1):
-            print(f"{safe_id}: pending displacement {index}/{len(pending)} running")
+        for _index, directory in enumerate(pending, start=1):
             _run_displacement(directory, displacement_aims_cmd)
     else:
         with ProcessPoolExecutor(max_workers=n_parallel_displacements) as executor:
-            futures = {executor.submit(_run_displacement, directory, displacement_aims_cmd): directory for directory in pending}
-            for index, future in enumerate(as_completed(futures), start=1):
+            futures = {
+                executor.submit(
+                    _run_displacement, directory, displacement_aims_cmd
+                ): directory
+                for directory in pending
+            }
+            for _index, future in enumerate(as_completed(futures), start=1):
                 directory = futures[future]
                 future.result()
-                print(f"{safe_id}: pending displacement {index}/{len(pending)} complete: {directory.name}")
     _run_command(
         [sys.executable, str(source_script), "--IR", safe_id, "analysis"],
         cwd=workdir,
@@ -559,7 +645,8 @@ def molecular_ir_job(
     if meaningful:
         if correction_cycle >= max_imaginary_cycles:
             raise RuntimeError(
-                f"Imaginary modes remain after {max_imaginary_cycles} cycles: {meaningful}"
+                f"Imaginary modes remain after {max_imaginary_cycles} "
+                f"cycles: {meaningful}"
             )
         displaced, mode_index, frequency, scale = _displace_imaginary_mode(
             molecule,
@@ -615,7 +702,11 @@ def molecular_ir_job(
         )
         return Response(replace=replacement)
 
-    summary_file = Path(dataset_directory).expanduser().resolve() / "all_results_1000um.csv" if dataset_directory else workdir / "all_results_1000um.csv"
+    summary_file = (
+        Path(dataset_directory).expanduser().resolve() / "all_results_1000um.csv"
+        if dataset_directory
+        else workdir / "all_results_1000um.csv"
+    )
     postprocessing = _postprocess_ir(
         molecule,
         modes_file,
@@ -648,7 +739,9 @@ def molecular_ir_job(
         conformer=conformer,
         postprocessing=postprocessing,
     )
-    final_document_file.write_text(json.dumps(document.model_dump(), cls=MontyEncoder, indent=2) + "\n")
+    final_document_file.write_text(
+        json.dumps(document.model_dump(), cls=MontyEncoder, indent=2) + "\n"
+    )
     if restart_directory:
         _archive_displacements(Path(restart_directory).expanduser().resolve(), safe_id)
     return document
