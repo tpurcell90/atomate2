@@ -1,0 +1,1 @@
+{"xc": "b3lyp", "relativistic": "atomic_zora scalar", "charge": 0, "compute_forces": true, "output": ["dipole"], "species_dir": "tight"}
